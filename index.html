@@ -23477,12 +23477,6 @@ async function _generateForumCommentReply(sectionId, postId, commentIdx, postTit
     const commentAuthorAvatar = targetPost.comments[commentIdx].avatar;
     const commentContent = targetPost.comments[commentIdx].content;
 
-    // Bug fix: prevent self-reply — if the comment was written by the user themselves, skip AI reply
-    if (commentAuthor === userProfile.name) {
-      _hideForumCommentTyping(postId, commentIdx, 'comment');
-      return;
-    }
-
     // Build surrounding thread context so AI understands the full discussion
     let threadContext = '';
     const otherComments = targetPost.comments.filter((_, i) => i !== commentIdx);
@@ -23555,12 +23549,6 @@ async function _generateForumReplyToReply(sectionId, postId, commentIdx, replyId
     // Try to find their avatar from existing replies or the comment itself
     let respondentName = replyToAuthor || comment.author;
     let respondentAvatar = replyToAvatar || comment.avatar;
-
-    // Bug fix: prevent self-reply — if the respondent IS the user, skip AI reply
-    if (respondentName === userProfile.name) {
-      _hideForumCommentTyping(postId, commentIdx, 'reply');
-      return;
-    }
     // If the user replied to the comment author, use the comment author's avatar
     if (respondentName === comment.author) respondentAvatar = comment.avatar;
     // Otherwise search existing replies for a matching avatar
@@ -23652,8 +23640,6 @@ async function updateForum() {
     const fc = data.choices[0].message.content.trim();
     const aiPosts = [];
     const lines = fc.split('\n').filter(l => l.trim() && l.includes('|||')).slice(0, 6);
-    let _uid = Date.now();
-    const _nextId = () => ++_uid;
     for (let i = 0; i < lines.length; i++) {
       const parts = lines[i].split('|||').map(p => p.trim());
       if (parts.length < 3) continue;
@@ -23662,14 +23648,14 @@ async function updateForum() {
       for (let j = 2; j < Math.min(parts.length, 7); j++) {
         if (!parts[j]) continue;
         let cu = mockUsers[Math.floor(Math.random() * mockUsers.length)];
-        comments.push({ id: _nextId(), author: cu.name, avatar: cu.avatar, content: parts[j], time: new Date().getTime() - Math.floor(Math.random() * 86400000), replies: [] });
+        comments.push({ id: Date.now() + j, author: cu.name, avatar: cu.avatar, content: parts[j], time: new Date().getTime() - Math.floor(Math.random() * 86400000), replies: [] });
       }
       while (comments.length < 3) {
         const cu = mockUsers[Math.floor(Math.random() * mockUsers.length)];
         const dc = ["说得有道理！", "不太同意这个", "求详细说说", "路过支持！", "有没有更多资讯？"];
-        comments.push({ id: _nextId(), author: cu.name, avatar: cu.avatar, content: dc[Math.floor(Math.random() * dc.length)], time: new Date().getTime() - Math.floor(Math.random() * 86400000), replies: [] });
+        comments.push({ id: Date.now() + comments.length, author: cu.name, avatar: cu.avatar, content: dc[Math.floor(Math.random() * dc.length)], time: new Date().getTime() - Math.floor(Math.random() * 86400000), replies: [] });
       }
-      aiPosts.push({ id: _nextId(), title: parts[0], author: ru.name, avatar: ru.avatar, content: parts[1], time: new Date().getTime() - Math.floor(Math.random() * 86400000 * 3), comments });
+      aiPosts.push({ id: Date.now() + i, title: parts[0], author: ru.name, avatar: ru.avatar, content: parts[1], time: new Date().getTime() - Math.floor(Math.random() * 86400000 * 3), comments });
     }
     // Preserve user posts — only replace/add AI posts, keep user's own posts at the top
     const existingPosts = forumData[currentSectionId] || [];
@@ -23749,7 +23735,6 @@ async function generatePersonaForumPost(personaId) {
   ].filter(Boolean).join('\n\n');
 
   // ── 显示加载状态 ──
-  const _postCreatedAt = Date.now(); // capture real click time before async API call
   const fl = document.getElementById('forumList');
   const loadingDiv = document.createElement('div');
   loadingDiv.id = 'personaForumPostLoading';
@@ -23799,36 +23784,35 @@ ${contextBlock || '（暂无，请根据人设自由发挥）'}
     const personaReplies = Array.isArray(result.personaReplies) ? result.personaReplies : [];
 
     // 为每条NPC评论分配随机头像
-    let _puid = Date.now();
-    const _pNextId = () => ++_puid;
     const builtComments = npcComments.map((c, i) => {
       const ru = mockUsers[Math.floor(Math.random() * mockUsers.length)];
       // 找该评论有无角色回复
       const matchingReplies = personaReplies.filter(r => r.replyToNpcName === c.npcName);
       const replies = matchingReplies.map(r => {
+        const ru2 = mockUsers[Math.floor(Math.random() * mockUsers.length)];
         return {
-          id: _pNextId(),
+          id: Date.now() + i * 100 + Math.random() * 99 | 0,
           author: '匿名',
           avatar: '',            // 匿名无头像
           content: r.content,
           replyTo: c.npcName,
-          time: _postCreatedAt + Math.floor(Math.random() * 300000), // persona reply after post
+          time: Date.now() - Math.floor(Math.random() * 600000),
           isPersonaComment: true  // 这是角色自己的匿名回复
         };
       });
       return {
-        id: _pNextId(),
+        id: Date.now() + i * 1000,
         author: c.npcName,
         avatar: ru.avatar,
         content: c.content,
-        time: _postCreatedAt + Math.floor(Math.random() * 120000), // shortly after post
+        time: Date.now() - Math.floor(Math.random() * 3600000),
         replies,
         isPersonaComment: false
       };
     });
 
     const newPost = {
-      id: _pNextId(),
+      id: Date.now(),
       title: result.title,
       author: '匿名',            // 固定显示"匿名"
       realAuthor: persona.name,  // 用户可见的真实角色名
@@ -23836,7 +23820,7 @@ ${contextBlock || '（暂无，请根据人设自由发挥）'}
       avatar: '',                // 匿名无头像
       authorType: 'persona_anon',
       content: result.content,
-      time: _postCreatedAt,      // use real click time, not post-API time
+      time: Date.now(),
       comments: builtComments,
       sectionId: currentSectionId
     };
@@ -48767,7 +48751,7 @@ const SHOP_RENO_LEVELS = [
   { lv:1, name:'进階裝修', desc:'风格化桌椅·氛围燈光·裝饰牆', cost:500,
     perks:['營收 +15%','顾客好评率 +10%','更多訂单機率'], revenueBonus:15, friendBonus:10 },
   { lv:2, name:'限定裝修', desc:'暧昧主題裝饰·專屬打卡点·限定燈串', cost:0,
-    perks:['營收 +30%','角色到店概率 +25%','解锁「探店打卡」功能','訂单量翻倍'], revenueBonus:30, friendBonus:25, requireAchv:'lover' },
+    perks:['營收 +30%','角色到店概率 +25%','解锁「探店打卡」功能','訂单量翻倍'], revenueBonus:30, friendBonus:25, requireAchv:'心动店主' },
 ];
 
 // ── Daily shop tasks ──
@@ -50546,7 +50530,7 @@ function _renderShopReno() {
       +(isNext?'<div style="padding:0 14px 14px;"><button class="shop-reno-upgrade-btn" onclick="upgradeShopReno('+lv.lv+')">'
         +(lv.cost>0?'升級 (¥'+lv.cost+')':'任务达成后解锁')
         +'</button></div>':'')
-      +(lv.requireAchv&&isLocked?(function(){var a=SHOP_ACHIEVEMENTS.find(function(x){return x.key===lv.requireAchv;});return '<div style="padding:0 16px 12px;font-size:10px;color:#aaa;">需先完成成就「'+(a?a.name:lv.requireAchv)+'」</div>';})()):'')
+      +(lv.requireAchv&&isLocked?'<div style="padding:0 16px 12px;font-size:10px;color:#aaa;">需先完成成就「'+lv.requireAchv+'」</div>':'')
       +'</div>';
   }).join('');
   document.getElementById('shopAppBody').innerHTML = '<div class="shop-reno-wrap">'+html+'</div>';
@@ -50554,15 +50538,6 @@ function _renderShopReno() {
 function upgradeShopReno(toLv) {
   const s = _loadShop(); if (!s.type) return;
   const def = SHOP_RENO_LEVELS[toLv]; if (!def) return;
-  // Check achievement requirement before allowing upgrade
-  if (def.requireAchv) {
-    const t2 = _loadShopTasks();
-    if (!t2.achvClaimed || !t2.achvClaimed[def.requireAchv]) {
-      const achvDef = SHOP_ACHIEVEMENTS.find(function(x){return x.key===def.requireAchv;});
-      alert('需先完成成就「' + (achvDef ? achvDef.name : def.requireAchv) + '」才能解锁此装修！');
-      return;
-    }
-  }
   if (def.cost>0) {
     const w = typeof getWallet==='function' ? getWallet() : {balance:0};
     if (w.balance < def.cost) { alert('钱包餘額不足。需要 ¥'+def.cost); return; }
