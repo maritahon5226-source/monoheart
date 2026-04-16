@@ -9165,6 +9165,38 @@ body:not(.ios-fullscreen) .family-widget {
   to { opacity: 1; transform: translateY(0); }
 }
 /* ===== 联机软件样式结束 ===== */
+
+/* ─── 新手教程入口横幅 ─── */
+.ol-tutorial-banner{display:flex;align-items:center;justify-content:space-between;background:linear-gradient(135deg,#1a1a1a 0%,#2d2d2d 100%);border-radius:16px;padding:16px 18px;margin:12px 0 14px;cursor:pointer;transition:opacity .18s;box-shadow:0 2px 12px rgba(0,0,0,.18);}
+.ol-tutorial-banner:active{opacity:.82;}
+.ol-tutorial-banner-left{display:flex;align-items:center;gap:14px;}
+.ol-tutorial-banner-icon{font-size:28px;line-height:1;}
+.ol-tutorial-banner-title{font-size:15px;font-weight:700;color:#fff;letter-spacing:.4px;}
+.ol-tutorial-banner-sub{font-size:11px;color:rgba(255,255,255,.6);margin-top:3px;}
+.ol-tutorial-banner-arrow{color:rgba(255,255,255,.5);font-size:13px;}
+/* ─── 新手教程弹窗遮罩 ─── */
+.ol-tutorial-modal-mask{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:99999;display:flex;align-items:flex-end;justify-content:center;backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);}
+.ol-tutorial-modal{width:100%;max-width:540px;max-height:88vh;background:#fff;border-radius:24px 24px 0 0;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 -4px 32px rgba(0,0,0,.2);}
+.ol-tutorial-modal-header{display:flex;align-items:center;justify-content:space-between;padding:20px 20px 12px;border-bottom:1px solid #f0f0f0;}
+.ol-tutorial-modal-title{font-size:16px;font-weight:800;color:#1a1a1a;letter-spacing:.3px;}
+.ol-tutorial-close-btn{background:#f5f5f5;border:none;border-radius:50%;width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;color:#666;}
+.ol-tutorial-progress-bar{height:3px;background:#f0f0f0;flex-shrink:0;}
+.ol-tutorial-progress-fill{height:100%;background:#1a1a1a;transition:width .35s ease;}
+.ol-tutorial-step-label{text-align:center;font-size:11px;color:#aaa;font-weight:600;letter-spacing:1px;padding:8px 0 2px;flex-shrink:0;}
+.ol-tutorial-body{flex:1;overflow-y:auto;padding:16px 22px 20px;-webkit-overflow-scrolling:touch;}
+.ol-tut-step-icon{font-size:44px;text-align:center;margin-bottom:14px;line-height:1;}
+.ol-tut-step-title{font-size:15px;font-weight:800;color:#1a1a1a;text-align:center;margin-bottom:18px;line-height:1.4;}
+.ol-tut-step-list{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:12px;}
+.ol-tut-step-list li{font-size:13.5px;color:#333;line-height:1.65;padding:12px 14px;background:#f8f8f8;border-radius:12px;border-left:3px solid #1a1a1a;}
+.ol-tut-step-list li em{display:block;font-style:normal;color:#888;font-size:12px;margin-top:2px;}
+.ol-tut-step-list li code{background:#e8e8e8;border-radius:4px;padding:1px 5px;font-family:'DM Mono',monospace;font-size:12px;}
+.ol-tutorial-footer{display:flex;align-items:center;justify-content:space-between;padding:14px 20px 24px;border-top:1px solid #f0f0f0;flex-shrink:0;background:#fff;}
+.ol-tutorial-nav-btn{background:#f0f0f0;border:none;border-radius:12px;padding:10px 18px;font-size:13px;font-weight:700;color:#444;cursor:pointer;transition:background .15s;}
+.ol-tutorial-nav-btn.primary{background:#1a1a1a;color:#fff;}
+.ol-tutorial-nav-btn:active{opacity:.8;}
+.ol-tutorial-dots{display:flex;gap:6px;align-items:center;}
+.ol-tut-dot{width:7px;height:7px;border-radius:50%;background:#ddd;cursor:pointer;transition:background .2s,transform .2s;}
+.ol-tut-dot.active{background:#1a1a1a;transform:scale(1.3);}
 /* ===== 梦境软件样式结束 ===== */
 /* ===== 后台通知中心样式 ===== */
 .notif-toggle-row { display:flex; align-items:center; justify-content:space-between; padding:10px 0; border-bottom:1px solid #f5f5f5; }
@@ -65958,7 +65990,19 @@ window.addEventListener('load', function() {
     const statusText = remote ? '✅ 已连接 Supabase，可跨手机联机' : (hasConfig ? '⚠️ 已填写信息，请点击测试连接' : '❌ 未配置，请填写下方信息');
 
     document.getElementById('olPanelSettings').innerHTML =
-      '<div class="online-card" style="border-left:3px solid ' + statusColor + ';margin-bottom:12px;">'
+      /* ── 新手教程入口 ── */
+      '<div class="ol-tutorial-banner" onclick="olOpenTutorial()">'
+      + '<div class="ol-tutorial-banner-left">'
+      + '<div class="ol-tutorial-banner-icon">🚀</div>'
+      + '<div>'
+      + '<div class="ol-tutorial-banner-title">新手教程</div>'
+      + '<div class="ol-tutorial-banner-sub">第一次连接？点这里，5 分钟搞定云端配置</div>'
+      + '</div>'
+      + '</div>'
+      + '<div class="ol-tutorial-banner-arrow"><i class="fas fa-chevron-right"></i></div>'
+      + '</div>'
+      /* ── 当前状态卡片 ── */
+      + '<div class="online-card" style="border-left:3px solid ' + statusColor + ';margin-bottom:12px;">'
       + '<div class="online-card-title">当前状态</div>'
       + '<div class="online-card-desc" style="font-weight:600;color:' + statusColor + ';">' + statusText + '</div>'
       + '<div class="online-card-desc" style="margin-top:4px;">上次同步：' + (state.lastSyncAt ? olShortTime(state.lastSyncAt) : '尚未同步') + '</div>'
@@ -65976,6 +66020,170 @@ window.addEventListener('load', function() {
       + '</div>'
       + '<div class="online-setting-code" id="olSqlBlock">' + olEsc(OL_SQL) + '</div></div>';
   }
+
+  /* ═══════════════════════════════════════════════
+     新手教程弹窗
+  ═══════════════════════════════════════════════ */
+  var OL_TUTORIAL_STEPS = [
+    {
+      icon: '🌐',
+      title: '第 1 步：注册 Supabase 免费账号',
+      body: [
+        '打开浏览器，访问 <strong>supabase.com</strong>',
+        '点击右上角 <strong>「Start your project」</strong> 或 <strong>「Sign Up」</strong>',
+        '可以用 GitHub 账号一键登录，也可以用邮箱注册',
+        '注册完成后进入 Supabase 控制台主页',
+        '<em>💡 Supabase 免费套餐完全够用，无需绑定信用卡</em>'
+      ]
+    },
+    {
+      icon: '🗂️',
+      title: '第 2 步：新建一个项目',
+      body: [
+        '在控制台点击绿色按钮 <strong>「New project」</strong>',
+        '填写项目名称（随便起，例如 <strong>mono-heart</strong>）',
+        '设置数据库密码（请妥善保管，之后不需要填入软件）',
+        '地区选 <strong>Northeast Asia (Tokyo)</strong> 或 <strong>Singapore</strong> 速度最快',
+        '点击 <strong>「Create new project」</strong>，等待约 1 分钟初始化完成',
+        '<em>💡 项目初始化完成后，页面会从"loading"变成仪表盘</em>'
+      ]
+    },
+    {
+      icon: '🔑',
+      title: '第 3 步：获取 URL 和 anon key',
+      body: [
+        '进入你的项目后，点击左侧菜单栏的 <strong>⚙️ Project Settings（齿轮图标）</strong>',
+        '在设置页中点击 <strong>「API」</strong> 选项卡',
+        '找到 <strong>「Project URL」</strong> 一栏，复制那段 <code>https://xxxxxx.supabase.co</code> 地址',
+        '继续往下找 <strong>「Project API keys」</strong> 区域',
+        '复制 <strong>anon / public</strong> 那一行的密钥（不是 service_role！）',
+        '<em>💡 anon key 很长，是一串 JWT，请完整复制不要截断</em>'
+      ]
+    },
+    {
+      icon: '🛠️',
+      title: '第 4 步：执行建表 SQL',
+      body: [
+        '回到 Supabase 项目，点击左侧菜单的 <strong>「SQL Editor」（数据库图标）</strong>',
+        '点击右上角 <strong>「New query」</strong> 新建一个查询',
+        '回到本软件 <strong>云端设置页</strong>，点击 <strong>「复制建表 SQL」</strong> 按钮',
+        '将复制的 SQL 全部粘贴到 Supabase SQL Editor 的输入框中',
+        '点击右下角绿色 <strong>「Run」</strong> 按钮执行',
+        '若看到 <strong>「Success. No rows returned」</strong> 提示即代表成功',
+        '<em>💡 每次软件大版本更新时，可能需要重新执行一次 SQL 以升级表结构</em>'
+      ]
+    },
+    {
+      icon: '✍️',
+      title: '第 5 步：填入设置并保存',
+      body: [
+        '回到本软件 <strong>「联机 → 云端」</strong> 设置页',
+        '在 <strong>「显示名称」</strong> 填入你想让好友看到的昵称',
+        '将刚才复制的 <strong>Supabase URL</strong> 粘贴到对应输入框',
+        '将刚才复制的 <strong>Supabase anon key</strong> 粘贴到对应文本框',
+        '点击 <strong>「保存设置」</strong> 按钮',
+        '<em>💡 保存后软件会自动尝试连接，状态卡片会变为黄色提示</em>'
+      ]
+    },
+    {
+      icon: '✅',
+      title: '第 6 步：测试连接',
+      body: [
+        '点击 <strong>「测试连接」</strong> 按钮',
+        '稍等几秒，若顶部状态卡片变为 <span style="color:#22c55e;font-weight:700;">✅ 绿色「已连接 Supabase」</span> 则大功告成！',
+        '若显示红色或黄色错误，请检查：<br>① URL 是否完整（以 https:// 开头）<br>② anon key 是否完整复制<br>③ SQL 是否已在 Supabase 执行成功',
+        '<em>💡 连接成功后，软件每 6 秒自动同步一次数据</em>'
+      ]
+    },
+    {
+      icon: '👫',
+      title: '第 7 步：和好友联机',
+      body: [
+        '连接成功后，前往 <strong>「联机 → 首页」</strong> 查看你的 <strong>6 位邀请码</strong>',
+        '将邀请码分享给朋友，对方在 <strong>「联机 → 好友」</strong> 页面输入邀请码发送申请',
+        '你在好友页面同意申请后，即可互相看到对方发布的角色卡和红线对象',
+        '进入 <strong>「聊天室」</strong> 可创建多人实时聊天，支持以角色身份发言',
+        '<em>💡 邀请码 24 小时内有效，过期后可在首页重新生成</em>'
+      ]
+    }
+  ];
+
+  window.olOpenTutorial = function() {
+    var el = document.getElementById('olTutorialModal');
+    if (el) { el.style.display = 'flex'; olTutorialGoStep(0); return; }
+    /* 动态插入弹窗 */
+    var modal = document.createElement('div');
+    modal.id = 'olTutorialModal';
+    modal.className = 'ol-tutorial-modal-mask';
+    modal.innerHTML =
+      '<div class="ol-tutorial-modal" onclick="event.stopPropagation()">'
+      + '<div class="ol-tutorial-modal-header">'
+      + '<div class="ol-tutorial-modal-title">☁️ 云端连接新手教程</div>'
+      + '<button class="ol-tutorial-close-btn" onclick="olCloseTutorial()"><i class="fas fa-times"></i></button>'
+      + '</div>'
+      + '<div class="ol-tutorial-progress-bar"><div class="ol-tutorial-progress-fill" id="olTutProgressFill"></div></div>'
+      + '<div class="ol-tutorial-step-label" id="olTutStepLabel"></div>'
+      + '<div class="ol-tutorial-body" id="olTutBody"></div>'
+      + '<div class="ol-tutorial-footer">'
+      + '<button class="ol-tutorial-nav-btn" id="olTutPrev" onclick="olTutorialPrev()"><i class="fas fa-chevron-left"></i> 上一步</button>'
+      + '<div class="ol-tutorial-dots" id="olTutDots"></div>'
+      + '<button class="ol-tutorial-nav-btn primary" id="olTutNext" onclick="olTutorialNext()">下一步 <i class="fas fa-chevron-right"></i></button>'
+      + '</div>'
+      + '</div>';
+    modal.addEventListener('click', function(e) { if (e.target === modal) olCloseTutorial(); });
+    document.body.appendChild(modal);
+    olTutorialGoStep(0);
+  };
+
+  window.olCloseTutorial = function() {
+    var el = document.getElementById('olTutorialModal');
+    if (el) el.style.display = 'none';
+  };
+
+  var _olTutStep = 0;
+  window.olTutorialGoStep = function(n) {
+    _olTutStep = Math.max(0, Math.min(n, OL_TUTORIAL_STEPS.length - 1));
+    var step = OL_TUTORIAL_STEPS[_olTutStep];
+    var total = OL_TUTORIAL_STEPS.length;
+    /* progress bar */
+    var fill = document.getElementById('olTutProgressFill');
+    if (fill) fill.style.width = ((_olTutStep + 1) / total * 100) + '%';
+    /* step label */
+    var lbl = document.getElementById('olTutStepLabel');
+    if (lbl) lbl.textContent = (_olTutStep + 1) + ' / ' + total;
+    /* body */
+    var body = document.getElementById('olTutBody');
+    if (body) {
+      body.innerHTML =
+        '<div class="ol-tut-step-icon">' + step.icon + '</div>'
+        + '<div class="ol-tut-step-title">' + step.title + '</div>'
+        + '<ul class="ol-tut-step-list">'
+        + step.body.map(function(line){ return '<li>' + line + '</li>'; }).join('')
+        + '</ul>';
+    }
+    /* dots */
+    var dots = document.getElementById('olTutDots');
+    if (dots) {
+      dots.innerHTML = OL_TUTORIAL_STEPS.map(function(_, i){
+        return '<span class="ol-tut-dot' + (i === _olTutStep ? ' active' : '') + '" onclick="olTutorialGoStep(' + i + ')"></span>';
+      }).join('');
+    }
+    /* buttons */
+    var prev = document.getElementById('olTutPrev');
+    var next = document.getElementById('olTutNext');
+    if (prev) prev.style.visibility = _olTutStep === 0 ? 'hidden' : 'visible';
+    if (next) {
+      if (_olTutStep === total - 1) {
+        next.innerHTML = '完成 <i class="fas fa-check"></i>';
+        next.onclick = olCloseTutorial;
+      } else {
+        next.innerHTML = '下一步 <i class="fas fa-chevron-right"></i>';
+        next.onclick = olTutorialNext;
+      }
+    }
+  };
+  window.olTutorialNext = function() { olTutorialGoStep(_olTutStep + 1); };
+  window.olTutorialPrev = function() { olTutorialGoStep(_olTutStep - 1); };
 
   function olRenderRoom() {
     const state = olState();
