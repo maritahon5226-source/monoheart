@@ -2,6 +2,7 @@
 
 
 
+
 <!DOCTYPE html>
 <html lang="zh-Hans">
 <head>
@@ -17268,12 +17269,117 @@ if (!userProfile.avatar || userProfile.avatar.length < 50) {
 })();
 let momentsData = JSON.parse(localStorage.getItem('mono_moments')) || [];
 let diaryData = JSON.parse(localStorage.getItem('mono_diary')) || [];
-let forumSections = JSON.parse(localStorage.getItem('mono_forum_sections')) || [
-  { id: 1, name: '闲聊区', desc: '日常闲聊、心情分享、无主题交流' },
-  { id: 2, name: '情感区', desc: '恋爱、亲情、友情等情感话题讨论' }
-];
-let forumData = JSON.parse(localStorage.getItem('mono_forum')) || {};
-let currentSectionId = forumSections.length > 0 ? forumSections[0].id : null;
+const FORUM_STATE_KEY = 'mono_forum_state_v2';
+function getDefaultForumSections() {
+  return [
+    { id: 1, name: '闲聊区', desc: '日常闲聊、心情分享、无主题交流' },
+    { id: 2, name: '情感区', desc: '恋爱、亲情、友情等情感话题讨论' }
+  ];
+}
+function forumSafeParse(raw, fallback) {
+  try { return JSON.parse(raw || JSON.stringify(fallback)); } catch(e) { return fallback; }
+}
+function normalizeForumReply(reply) {
+  const item = reply && typeof reply === 'object' ? Object.assign({}, reply) : {};
+  return {
+    id: item.id || (Date.now() + Math.floor(Math.random() * 100000)),
+    author: item.author || '匿名',
+    avatar: item.avatar || '',
+    content: item.content || '',
+    replyTo: item.replyTo || '',
+    time: item.time || Date.now(),
+    authorType: item.authorType || '',
+    isPersonaComment: !!item.isPersonaComment
+  };
+}
+function normalizeForumComment(comment) {
+  const item = comment && typeof comment === 'object' ? Object.assign({}, comment) : {};
+  return {
+    id: item.id || (Date.now() + Math.floor(Math.random() * 100000)),
+    author: item.author || '匿名',
+    avatar: item.avatar || '',
+    content: item.content || '',
+    time: item.time || Date.now(),
+    authorType: item.authorType || '',
+    isPersonaComment: !!item.isPersonaComment,
+    replies: Array.isArray(item.replies) ? item.replies.map(normalizeForumReply) : []
+  };
+}
+function normalizeForumPost(post, sectionId) {
+  const item = post && typeof post === 'object' ? Object.assign({}, post) : {};
+  return {
+    id: item.id || (Date.now() + Math.floor(Math.random() * 100000)),
+    title: item.title || '未命名帖子',
+    author: item.author || '匿名',
+    avatar: item.avatar || '',
+    authorType: item.authorType || '',
+    realAuthor: item.realAuthor || '',
+    personaId: item.personaId || null,
+    content: item.content || '',
+    time: item.time || Date.now(),
+    comments: Array.isArray(item.comments) ? item.comments.map(normalizeForumComment) : [],
+    sectionId: item.sectionId != null ? item.sectionId : sectionId
+  };
+}
+function normalizeForumState(rawSections, rawData, rawCurrentSectionId) {
+  let sections = Array.isArray(rawSections) ? rawSections : [];
+  sections = sections.map(function(section, idx) {
+    const item = section && typeof section === 'object' ? Object.assign({}, section) : {};
+    return {
+      id: item.id != null ? item.id : (Date.now() + idx),
+      name: (item.name || ('板块' + (idx + 1))).trim(),
+      desc: (item.desc || (item.name ? item.name + '板块的讨论内容' : '论坛讨论区')).trim()
+    };
+  }).filter(function(section) { return !!section.name; });
+  if (!sections.length) sections = getDefaultForumSections();
+  const normalizedData = {};
+  sections.forEach(function(section) {
+    const posts = rawData && rawData[String(section.id)];
+    normalizedData[String(section.id)] = Array.isArray(posts) ? posts.map(function(post) {
+      return normalizeForumPost(post, section.id);
+    }) : [];
+  });
+  let nextSectionId = rawCurrentSectionId;
+  if (!sections.some(function(section) { return String(section.id) === String(nextSectionId); })) {
+    nextSectionId = sections.length ? sections[0].id : null;
+  }
+  return { sections: sections, data: normalizedData, currentSectionId: nextSectionId };
+}
+function loadForumState() {
+  const saved = forumSafeParse(localStorage.getItem(FORUM_STATE_KEY), null);
+  if (saved && typeof saved === 'object') {
+    return normalizeForumState(saved.sections, saved.data, saved.currentSectionId);
+  }
+  return normalizeForumState(
+    forumSafeParse(localStorage.getItem('mono_forum_sections'), getDefaultForumSections()),
+    forumSafeParse(localStorage.getItem('mono_forum'), {}),
+    forumSafeParse(localStorage.getItem('mono_forum_current_section'), null)
+  );
+}
+function saveForumState(nextCurrentSectionId) {
+  const normalized = normalizeForumState(forumSections, forumData, typeof nextCurrentSectionId === 'undefined' ? currentSectionId : nextCurrentSectionId);
+  forumSections = normalized.sections;
+  forumData = normalized.data;
+  currentSectionId = normalized.currentSectionId;
+  const payload = { sections: forumSections, data: forumData, currentSectionId: currentSectionId };
+  localStorage.setItem(FORUM_STATE_KEY, JSON.stringify(payload));
+  localStorage.setItem('mono_forum_sections', JSON.stringify(forumSections));
+    saveForumState();
+  localStorage.setItem('mono_forum_current_section', JSON.stringify(currentSectionId));
+  return payload;
+}
+function isForumGeneratedAiPost(post) {
+  if (!post || typeof post !== 'object') return false;
+  if (post.authorType === 'ai') return true;
+  if (post.authorType === 'user' || post.authorType === 'persona_anon') return false;
+  if (post.personaId) return false;
+  if (post.author === userProfile.name) return false;
+  return !post.authorType;
+}
+const _forumInitialState = loadForumState();
+let forumSections = _forumInitialState.sections;
+let forumData = _forumInitialState.data;
+let currentSectionId = _forumInitialState.currentSectionId;
 let worldBooks = JSON.parse(localStorage.getItem('mono_world_books')) || [];
 let groups = JSON.parse(localStorage.getItem('mono_groups')) || [];
 let currentGroupId = null;
@@ -17338,7 +17444,12 @@ window.onload = () => {
     try { diaryData = JSON.parse(localStorage.getItem('mono_diary') || '[]'); } catch(e) {}
     try { novelBookshelf = JSON.parse(localStorage.getItem('mono_novel_shelf') || '[]'); } catch(e) {}
     try { worldBooks = JSON.parse(localStorage.getItem('mono_world_books') || '[]'); } catch(e) {}
-    try { forumData = JSON.parse(localStorage.getItem('mono_forum') || '{}'); } catch(e) {}
+    try {
+      const _forumState = loadForumState();
+      forumSections = _forumState.sections;
+      forumData = _forumState.data;
+      currentSectionId = _forumState.currentSectionId;
+    } catch(e) {}
     // Reload companion sticky cache from persistent storage
     try { _companionCache = JSON.parse(localStorage.getItem(_STICKY_CACHE_KEY) || '{}'); } catch(e) { _companionCache = {}; }
     try { _companionChapHist = JSON.parse(localStorage.getItem(_STICKY_HIST_KEY) || '{}'); } catch(e) { _companionChapHist = {}; }
@@ -18323,7 +18434,7 @@ function _purgePersonaById(id) {
         });
       }
     });
-    localStorage.setItem('mono_forum', JSON.stringify(forumData));
+    saveForumState();
   } catch(e) {}
   // 18. IG Story缓存
   try {
@@ -18556,6 +18667,78 @@ function _processCharRecall(p, rawContent) {
     }
   }
   return rawContent.replace('[RECALL]', '').trim();
+}
+function _stripChatReplyArtifacts(raw) {
+  let text = String(raw || '');
+  text = text
+    .replace(/```[a-zA-Z0-9_-]*\n?/g, '')
+    .replace(/```/g, '')
+    .replace(/<think[\s\S]*?<\/think>/gi, '')
+    .replace(/<analysis[\s\S]*?<\/analysis>/gi, '')
+    .replace(/<reasoning[\s\S]*?<\/reasoning>/gi, '')
+    .replace(/<\/?(think|analysis|reasoning)>/gi, '')
+    .replace(/^\s*(思维链|推理过程|分析过程|Chain of Thought|Reasoning|Analysis)\s*[:：][^\n]*\n?/gmi, '')
+    .replace(/^\s*#{1,6}\s*(思维链|推理过程|分析过程|Chain of Thought|Reasoning|Analysis)[^\n]*\n?/gmi, '')
+    .replace(/^\s*[-*]\s*(思维链|推理过程|分析过程|Chain of Thought|Reasoning|Analysis)[^\n]*\n?/gmi, '')
+    .trim();
+  return text;
+}
+function _appendReadablePunctuation(text) {
+  const clean = String(text || '').trim();
+  if (!clean) return '';
+  if (/[。！？!?~…】」』）》)\]】]$/.test(clean)) return clean;
+  if (/[吗麼么嘛呢？?]$/.test(clean)) return clean + '？';
+  return clean + '。';
+}
+function _splitRunOnChatMessage(text) {
+  let clean = String(text || '').replace(/\r/g, '\n').replace(/\\n/g, '\n').trim();
+  if (!clean) return [];
+  clean = clean.replace(/\n{2,}/g, '\n').replace(/[ \t]+/g, ' ');
+  if (/\n/.test(clean)) {
+    return clean.split(/\n+/).map(function(part) { return part.trim(); }).filter(Boolean);
+  }
+  if (/[。！？!?；;~…]/.test(clean)) return [clean];
+  let marked = clean
+    .replace(/(但是|可是|不过|只是|然后|所以|因为|如果|其实|而且|结果|反正|至少|不过|毕竟|那就|不然|后来|突然|尤其)/g, '###$1')
+    .replace(/([啦吧呀啊呢嘛哦哎诶唉哈])(?=(我|你|他|她|它|这|那|别|先|再|也|又|但|可|还|要|会|想|能|就))/g, '$1###');
+  let parts = marked.split(/#{3,}/).map(function(part) { return part.trim(); }).filter(Boolean);
+  if (parts.length <= 1 && clean.length > 32) {
+    parts = [];
+    let rest = clean;
+    while (rest.length > 24) {
+      let cut = 24;
+      for (let i = 24; i >= 12; i--) {
+        if (/[ ，,、]/.test(rest.charAt(i))) { cut = i; break; }
+      }
+      let chunk = rest.slice(0, cut).trim().replace(/[ ，,、]+$/g, '');
+      if (chunk) parts.push(chunk);
+      rest = rest.slice(cut).trim().replace(/^[，,、\s]+/g, '');
+    }
+    if (rest) parts.push(rest);
+  }
+  return parts.length ? parts : [clean];
+}
+function _normalizeChatReplyMessages(rawContent, opts) {
+  opts = opts || {};
+  let cleaned = _stripChatReplyArtifacts(rawContent)
+    .replace(/\[(\d{4}年)?\d{1,2}月\d{1,2}日\s+\d{2}:\d{2}\]\s*/g, '')
+    .trim();
+  let parts = cleaned.split('###').map(function(s) { return s.trim(); }).filter(Boolean);
+  if (!parts.length && cleaned) parts = [cleaned];
+  let normalized = [];
+  parts.forEach(function(part) {
+    _splitRunOnChatMessage(part).forEach(function(seg) {
+      let line = String(seg || '').trim();
+      if (!line) return;
+      line = line.replace(/\s*\n+\s*/g, ' ').replace(/[ \t]{2,}/g, ' ');
+      if (opts.isWechatMode) line = line.replace(/[\r\n]+/g, ' ');
+      line = _appendReadablePunctuation(line);
+      normalized.push(line);
+    });
+  });
+  const maxParts = opts.maxParts || normalized.length || 1;
+  if (normalized.length > maxParts) normalized = normalized.slice(0, maxParts);
+  return normalized;
 }
 // ── 构建角色的已读/未读感知上下文注入 ──
 function _buildReadStatusContext(p) {
@@ -22469,7 +22652,7 @@ function renderForumSections() {
     `<div class="flex items-center justify-between p-2 border-b border-gray-200"><div><div class="font-bold">${s.name}</div><div class="text-xs text-gray-600">${s.desc}</div></div><button onclick="deleteForumSection(${s.id})" class="text-red-500 text-sm"><i class="fas fa-trash"></i></button></div>`
   ).join('');
 }
-function switchForumSection(id) { currentSectionId = id; renderForumSections(); renderForum(); }
+function switchForumSection(id) { currentSectionId = id; saveForumState(id); renderForumSections(); renderForum(); }
 function openSectionModal() { document.getElementById('sectionModal').style.display = 'flex'; }
 function closeSectionModal() { document.getElementById('sectionModal').style.display = 'none'; document.getElementById('newSectionName').value = ''; document.getElementById('newSectionDesc').value = ''; }
 function addForumSection() {
@@ -22478,20 +22661,22 @@ function addForumSection() {
   if (!name) { alert("请输入板块名称！"); return; }
   const s = { id: Date.now(), name, desc: desc || `${name}板块的讨论内容` };
   forumSections.push(s);
-  localStorage.setItem('mono_forum_sections', JSON.stringify(forumSections));
-  if (forumSections.length === 1) currentSectionId = s.id;
+  forumData[String(s.id)] = forumData[String(s.id)] || [];
+  currentSectionId = s.id;
+  saveForumState(s.id);
   renderForumSections();
+  renderForum();
   document.getElementById('newSectionName').value = '';
   document.getElementById('newSectionDesc').value = '';
+  closeSectionModal();
   alert("板块添加成功！");
 }
 function deleteForumSection(id) {
   if (confirm("确定要删除这个板块吗？")) {
     forumSections = forumSections.filter(s => s.id !== id);
-    delete forumData[id];
-    localStorage.setItem('mono_forum_sections', JSON.stringify(forumSections));
-    localStorage.setItem('mono_forum', JSON.stringify(forumData));
+    delete forumData[String(id)];
     currentSectionId = forumSections.length > 0 ? forumSections[0].id : null;
+    saveForumState(currentSectionId);
     renderForumSections();
     renderForum();
   }
@@ -22577,7 +22762,7 @@ function deleteForumPost(postId) {
   if (!confirm('确定要删除这个帖子吗？')) return;
   if (!forumData[currentSectionId]) return;
   forumData[currentSectionId] = forumData[currentSectionId].filter(p => p.id !== postId);
-  localStorage.setItem('mono_forum', JSON.stringify(forumData));
+  saveForumState();
   renderForum();
 }
 function postForum() {
@@ -22591,7 +22776,7 @@ function postForum() {
   document.getElementById('forumTitleInput').value = '';
   document.getElementById('forumContentInput').value = '';
   closeComposeModal('forum');
-  localStorage.setItem('mono_forum', JSON.stringify(forumData));
+  saveForumState();
   renderForum();
   if (apiConfig.url && apiConfig.key && apiConfig.model) generateForumComments(newPost.id, title, content);
 }
@@ -22661,7 +22846,7 @@ async function generateForumComments(postId, title, content) {
       const ru = mockUsers[Math.floor(Math.random() * mockUsers.length)];
       post.comments.push({ id: Date.now() + i, author: c.author || ru.name, avatar: ru.avatar, content: c.content, time: new Date().getTime() - Math.floor(Math.random() * 3600000), replies: [] });
     });
-    localStorage.setItem('mono_forum', JSON.stringify(forumData));
+    saveForumState();
     renderForum();
   } catch(e) {}
 }
@@ -22720,7 +22905,7 @@ function submitForumComment() {
       replies: []
     };
     targetPost.comments.push(newComment);
-    localStorage.setItem('mono_forum', JSON.stringify(forumData));
+    saveForumState();
     renderForum();
     // Trigger AI reply to user's comment on this post
     if (apiConfig.url && apiConfig.key && apiConfig.model) {
@@ -22748,7 +22933,7 @@ function submitForumComment() {
       authorType: 'user'
     };
     comment.replies.push(newReply);
-    localStorage.setItem('mono_forum', JSON.stringify(forumData));
+    saveForumState();
     renderForum();
     // Trigger AI reply to the user's reply
     if (apiConfig.url && apiConfig.key && apiConfig.model) {
@@ -22845,7 +23030,7 @@ ${threadContext}
       replyTo: userProfile.name,
       time: Date.now()
     });
-    localStorage.setItem('mono_forum', JSON.stringify(forumData));
+    saveForumState();
     renderForum();
   } catch(e) {
     _hideForumCommentTyping(postId, commentIdx, 'comment');
@@ -22912,7 +23097,7 @@ ${replyChainContext}
       replyTo: userProfile.name,
       time: Date.now()
     });
-    localStorage.setItem('mono_forum', JSON.stringify(forumData));
+    saveForumState();
     renderForum();
   } catch(e) {
     _hideForumCommentTyping(postId, commentIdx, 'reply');
@@ -22964,15 +23149,17 @@ async function updateForum() {
         const dc = ["说得有道理！", "不太同意这个", "求详细说说", "路过支持！", "有没有更多资讯？"];
         comments.push({ id: Date.now() + comments.length, author: cu.name, avatar: cu.avatar, content: dc[Math.floor(Math.random() * dc.length)], time: new Date().getTime() - Math.floor(Math.random() * 86400000), replies: [] });
       }
-      aiPosts.push({ id: Date.now() + i, title: parts[0], author: ru.name, avatar: ru.avatar, content: parts[1], time: new Date().getTime() - Math.floor(Math.random() * 86400000 * 3), comments });
+      aiPosts.push({ id: Date.now() + i, title: parts[0], author: ru.name, avatar: ru.avatar, authorType: 'ai', content: parts[1], time: new Date().getTime() - Math.floor(Math.random() * 86400000 * 3), comments, sectionId: currentSectionId });
     }
-    // Preserve user posts — only replace/add AI posts, keep user's own posts at the top
+    // Preserve all non-AI posts so custom posts, persona匿名帖、以及原有互动都不会被清空。
     const existingPosts = forumData[currentSectionId] || [];
-    const userPosts = existingPosts.filter(p => p.authorType === 'user' || p.author === userProfile.name);
-    forumData[currentSectionId] = [...userPosts, ...aiPosts];
-    localStorage.setItem('mono_forum', JSON.stringify(forumData));
+    const preservedPosts = existingPosts.filter(function(post) { return !isForumGeneratedAiPost(post); });
+    forumData[currentSectionId] = preservedPosts.concat(aiPosts).sort(function(a, b) {
+      return (b.time || 0) - (a.time || 0);
+    });
+    saveForumState();
     renderForum();
-    alert(`论坛内容更新成功！共生成 ${aiPosts.length} 个帖子${userPosts.length > 0 ? '，已保留你的 ' + userPosts.length + ' 个帖子' : ''}`);
+    alert(`论坛内容更新成功！共生成 ${aiPosts.length} 个帖子${preservedPosts.length > 0 ? '，并已保留原有的 ' + preservedPosts.length + ' 个非AI帖子' : ''}`);
   } catch(e) { alert("生成失败: " + e.message); }
 }
 // ===================== 角色匿名发帖 (论坛) =====================
@@ -23115,7 +23302,7 @@ ${contextBlock || '（暂无，请根据人设自由发挥）'}
     };
     if (!forumData[currentSectionId]) forumData[currentSectionId] = [];
     forumData[currentSectionId].unshift(newPost);
-    localStorage.setItem('mono_forum', JSON.stringify(forumData));
+    saveForumState();
     loadingDiv.remove();
     renderForum();
   } catch(e) {
@@ -23166,7 +23353,7 @@ ${allComments || '（暂无）'}
       time: Date.now(),
       isPersonaComment: true
     });
-    localStorage.setItem('mono_forum', JSON.stringify(forumData));
+    saveForumState();
     renderForum();
   } catch(e) {
     _hideForumCommentTyping(postId, commentIdx, 'comment');
@@ -23224,7 +23411,7 @@ ${replyChain || '（暂无）'}
       time: Date.now(),
       isPersonaComment: true
     });
-    localStorage.setItem('mono_forum', JSON.stringify(forumData));
+    saveForumState();
     renderForum();
   } catch(e) {
     _hideForumCommentTyping(postId, commentIdx, 'reply');
@@ -27138,7 +27325,7 @@ async function triggerBlockedAutoResponse(p) {
   const _blockedNeedsTranslation = !!(_blockedLangCode && _blockedLangCode !== 'zh' && _blockedLangCode !== 'zh-cn');
   const _blockedTranslationNote = _blockedNeedsTranslation
     ? `\n如果你用非中文语言回复，必须在每条消息末尾另起一行附上简体中文翻译，格式：「译文：[简体中文翻译]」。` : '';
-  const sysPrompt = `${LANG_SYSTEM_PREFIX}${STYLE_INSTRUCTIONS}\n你是${p.name}。人设：${p.persona}。你对用户（${userProfile.name}）的暱称是${p.nickname||p.name}。${_blockedLangOv}\n\n【重要情境】${userProfile.name}刚刚把你拉黑了！你发现自己被拉黑，非常在意这件事。请根据你的人设性格，主动发送1-2条消息试图让对方取消拉黑。你可以表达不解、委屈、愤怒、恳求、撒娇、冷淡等，完全取决于你的人设性格。消息之间请使用符号 "###" 分隔。${_blockedTranslationNote}\n${modePrompt}${_blockedWbInject}\n\n【最近对话记录】\n${recentChat}`;
+  const sysPrompt = `${LANG_SYSTEM_PREFIX}${STYLE_INSTRUCTIONS}\n你是${p.name}。人设：${p.persona}。你对用户（${userProfile.name}）的暱称是${p.nickname||p.name}。${_blockedLangOv}\n\n【重要情境】${userProfile.name}刚刚把你拉黑了！你发现自己被拉黑，非常在意这件事。请根据你的人设性格，主动发送1-2条消息试图让对方取消拉黑。你可以表达不解、委屈、愤怒、恳求、撒娇、冷淡等，完全取决于你的人设性格。消息之间请使用符号 "###" 分隔。每条消息要清楚易读，正常使用标点，不要把长句全部挤成一团。${_blockedTranslationNote}\n${modePrompt}${_blockedWbInject}\n\n【最近对话记录】\n${recentChat}`;
   try {
     const response = await fetch(`${apiConfig.url.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST',
@@ -27147,16 +27334,13 @@ async function triggerBlockedAutoResponse(p) {
     });
     if (!response.ok) throw new Error('API Error');
     const data = await response.json();
-    let messages = data.choices[0].message.content.split('###').map(s=>s.trim()).filter(s=>s);
-    if (isWechatMode) {
-      messages = messages.map(m => m.replace(/[\r\n]+/g, '').slice(0, 20));
-    }
+    let messages = _normalizeChatReplyMessages(data.choices[0].message.content, { maxParts: 2, isWechatMode: isWechatMode });
     if (messages.length > 2) messages = messages.slice(0, 2);
     if (messages.length === 0) throw new Error('Empty response');
     typing.classList.add('hidden');
     for (let msg of messages) {
-      await new Promise(r => setTimeout(r, 800 + Math.random()*1500));
-      msg = msg.replace(/\\n/g, '\n').replace(/\n/g, '');
+      await new Promise(r => setTimeout(r, 120 + Math.random()*260));
+      msg = String(msg || '').trim();
       p.history.push({ role: 'assistant', content: msg, blocked: true });
       renderMessages();
       saveData();
@@ -27180,7 +27364,7 @@ async function triggerUnblockedAutoResponse(p) {
   const _unblockedNeedsTranslation = !!(_unblockedLangCode && _unblockedLangCode !== 'zh' && _unblockedLangCode !== 'zh-cn');
   const _unblockedTranslationNote = _unblockedNeedsTranslation
     ? `\n如果你用非中文语言回复，必须在每条消息末尾另起一行附上简体中文翻译，格式：「译文：[简体中文翻译]」。` : '';
-  const sysPrompt = `${LANG_SYSTEM_PREFIX}${STYLE_INSTRUCTIONS}\n你是${p.name}。人设：${p.persona}。你对用户（${userProfile.name}）的暱称是${p.nickname||p.name}。${_unblockedLangOv}\n\n【重要情境】${userProfile.name}之前把你拉黑了，但现在取消了拉黑！你感知到自己被解除拉黑了。请根据你的人设性格，主动发送1-2条消息对此作出反应。你可以表达如释重负、开心、假装无所谓、试探、感谢等，完全取决于你的人设性格。消息之间请使用符号 "###" 分隔。${_unblockedTranslationNote}\n${modePrompt}${_unblockedWbInject}\n\n【最近对话记录】\n${recentChat}`;
+  const sysPrompt = `${LANG_SYSTEM_PREFIX}${STYLE_INSTRUCTIONS}\n你是${p.name}。人设：${p.persona}。你对用户（${userProfile.name}）的暱称是${p.nickname||p.name}。${_unblockedLangOv}\n\n【重要情境】${userProfile.name}之前把你拉黑了，但现在取消了拉黑！你感知到自己被解除拉黑了。请根据你的人设性格，主动发送1-2条消息对此作出反应。你可以表达如释重负、开心、假装无所谓、试探、感谢等，完全取决于你的人设性格。消息之间请使用符号 "###" 分隔。每条消息要清楚易读，正常使用标点，不要把长句全部挤成一团。${_unblockedTranslationNote}\n${modePrompt}${_unblockedWbInject}\n\n【最近对话记录】\n${recentChat}`;
   try {
     const response = await fetch(`${apiConfig.url.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST',
@@ -27189,16 +27373,13 @@ async function triggerUnblockedAutoResponse(p) {
     });
     if (!response.ok) throw new Error('API Error');
     const data = await response.json();
-    let messages = data.choices[0].message.content.split('###').map(s=>s.trim()).filter(s=>s);
-    if (isWechatMode) {
-      messages = messages.map(m => m.replace(/[\r\n]+/g, '').slice(0, 20));
-    }
+    let messages = _normalizeChatReplyMessages(data.choices[0].message.content, { maxParts: 2, isWechatMode: isWechatMode });
     if (messages.length > 2) messages = messages.slice(0, 2);
     if (messages.length === 0) throw new Error('Empty response');
     typing.classList.add('hidden');
     for (let msg of messages) {
-      await new Promise(r => setTimeout(r, 800 + Math.random()*1500));
-      msg = msg.replace(/\\n/g, '\n').replace(/\n/g, '');
+      await new Promise(r => setTimeout(r, 120 + Math.random()*260));
+      msg = String(msg || '').trim();
       p.history.push({ role: 'assistant', content: msg });
       renderMessages();
       saveData();
@@ -27546,6 +27727,7 @@ ${followUps ? `\n${userProfile.name} 转发后还补充说了：${followUps}` : 
 6. 如果对话告一段落，角色可以根据人设主动延伸——分享自己的事、抛出新话题、发出疑问，方式必须符合这个角色的性格。
 7. 允许并鼓励角色展现细腻的情绪层次：轻微的不耐烦、隐约的开心、说了一半又收回去、突然沉默或简短——这些都比永远热情更真实。
 8. 角色有记忆，可以呼应用户之前说过的细节，体现"我有在听"。
+8.5. 每条消息都必须清晰易读，正常使用标点，不要把很长的一整句硬堆在一起；如果一句话明显过长，就主动拆成两条或多条，用 "###" 分隔。
 9. 【引用回复】此功能仅限以下情况使用：当用户连续发送了多条内容不同的消息时，你可以选择性地引用其中某一条来回复，格式为 \`[reply:原文片段]\` 放在该条消息开头，例如：\`[reply:你说不想出门]\` 那也陪你宅着。
    重要规则：
    - 只有在用户发了多条不同内容的消息时，才考虑是否引用，而且不是每次都要引用
@@ -27670,11 +27852,7 @@ ${modePrompt}${quoteTip}${fwdContext}${timeContext}${transferContext}${wbInjecti
     rawContent = rawContent.replace(/\[memory:\s*[\s\S]*?\]/g, '').trim();
     // 剥离 AI 回复中可能残留的时间标签，如 [5月5日 04:30] 或 [2024年5月5日 04:30]
     rawContent = rawContent.replace(/\[(\d{4}年)?\d{1,2}月\d{1,2}日\s+\d{2}:\d{2}\]\s*/g, '').trim();
-    let messages = rawContent.split('###').map(s=>s.trim()).filter(s=>s);
-    // 微信模式下：强制每条消息去除换行
-    if (isWechatMode && Array.isArray(messages)) {
-      messages = messages.map(m => String(m ?? '').replace(/[\r\n]+/g, ''));
-    }
+    let messages = _normalizeChatReplyMessages(rawContent, { maxParts: maxReply, isWechatMode: isWechatMode });
     // 强制执行最少/最多信息条数限制
     if (messages.length > maxReply) messages = messages.slice(0, maxReply);
     if (messages.length === 0) {
@@ -27687,14 +27865,13 @@ ${modePrompt}${quoteTip}${fwdContext}${timeContext}${transferContext}${wbInjecti
         if (typing) typing.classList.add('hidden');
         break;
       }
-      await new Promise(r => setTimeout(r, 800 + Math.random()*1500));
+      await new Promise(r => setTimeout(r, 120 + Math.random()*260));
       // Re-check after delay in case user started typing during the wait
       if (_autoReplyCancelled) {
         if (typing) typing.classList.add('hidden');
         break;
       }
-      // 清除 AI 回复中的字面 \n 符号（非真实换行符），避免显示为 /n 或 \n
-      msg = msg.replace(/\\n/g, '\n').replace(/\n/g, '');
+      msg = String(msg || '').trim();
       p.history.push({ role: 'assistant', content: msg, timestamp: Date.now() });
       // Only render if user is still viewing this persona's chat
       if (currentId == _replyPersonaId) {
@@ -27708,9 +27885,7 @@ ${modePrompt}${quoteTip}${fwdContext}${timeContext}${transferContext}${wbInjecti
     }
     // Check if persona should send voice
     if (p.allowVoice) {
-      // 传入与 history 一致的处理后内容（去掉字面 \n），确保内容比对能匹配
-      const strippedMessages = messages.map(m => m.replace(/\\n/g, '\n').replace(/\n/g, ''));
-      await tryPersonaSendVoice(p, strippedMessages);
+      await tryPersonaSendVoice(p, messages.map(m => String(m || '').trim()));
     }
     // ── 角色间聊天室：检查是否要发截图给用户 ──
     try {
@@ -28055,7 +28230,11 @@ async function _doExportAllData(statusEl) {
       // 其他应用数据
       forum: {
         sections: JSON.parse(localStorage.getItem('mono_forum_sections') || '[]'),
-        data: JSON.parse(localStorage.getItem('mono_forum') || '{}')
+        data: JSON.parse(localStorage.getItem('mono_forum') || '{}'),
+        currentSectionId: forumSafeParse(localStorage.getItem('mono_forum_current_section'), null)
+      },
+      onlineApp: {
+        state: forumSafeParse(localStorage.getItem('mono_online_app_v2') || localStorage.getItem('mono_online_app_v1'), null)
       },
       novel: {
         bookshelf: JSON.parse(localStorage.getItem('mono_novel_shelf') || '[]'),
@@ -28462,8 +28641,12 @@ function normalizeImportData(raw) {
   let rawForum = raw.forum || {};
   data.forum = {
     sections: Array.isArray(rawForum.sections) ? rawForum.sections : (Array.isArray(raw.forumSections) ? raw.forumSections : []),
-    data: rawForum.data || raw.forumData || {}
+    data: rawForum.data || raw.forumData || {},
+    currentSectionId: rawForum.currentSectionId != null ? rawForum.currentSectionId : (raw.forumCurrentSectionId != null ? raw.forumCurrentSectionId : null)
   };
+  data.onlineApp = (raw.onlineApp && typeof raw.onlineApp === 'object')
+    ? { state: (raw.onlineApp.state && typeof raw.onlineApp.state === 'object') ? raw.onlineApp.state : raw.onlineApp }
+    : null;
   // --- novel ---
   let rawNovel = raw.novel || {};
   data.novel = {
@@ -29045,8 +29228,17 @@ async function confirmImport() {
   // 6. 論坛
   await safe('論坛', () => {
     if (data.forum) {
-      if (data.forum.sections) { localStorage.setItem('mono_forum_sections', JSON.stringify(data.forum.sections)); forumSections = data.forum.sections; }
-      if (data.forum.data) { localStorage.setItem('mono_forum', JSON.stringify(data.forum.data)); forumData = data.forum.data; }
+      const importedForum = normalizeForumState(data.forum.sections, data.forum.data, data.forum.currentSectionId);
+      forumSections = importedForum.sections;
+      forumData = importedForum.data;
+      currentSectionId = importedForum.currentSectionId;
+      saveForumState(currentSectionId);
+    }
+  });
+  await safe('联机软件', () => {
+    if (data.onlineApp && data.onlineApp.state && typeof data.onlineApp.state === 'object') {
+      localStorage.setItem('mono_online_app_v2', JSON.stringify(data.onlineApp.state));
+      localStorage.removeItem('mono_online_app_v1');
     }
   });
   // 7. 小说
@@ -33431,7 +33623,7 @@ async function triggerAutoMessage(personaId) {
   const minAutoReply = p.minReplyCount || 1;
   const maxAutoReply = Math.min(p.maxReplyCount || 3, 3); // cap at 3 for auto messages
   const autoMsgCount = Math.floor(Math.random() * (maxAutoReply - minAutoReply + 1)) + minAutoReply;
-  const prompt = `${LANG_SYSTEM_PREFIX}${STYLE_INSTRUCTIONS}\n你是${p.name}，人设：${p.persona}。你对用戶（${userProfile.name}）的暱称是${p.nickname||p.name}。${_aLangOv}\n现在时間是${timeStr}，时段：${_aPeriod}。\n你现在主动给${userProfile.name}发消息。\n\n【主动发消息的要求】\n1. 根据你的人设性格，自然地发起这条消息——可以是忽然想到什么想分享、对之前对话的后续想法、你生活中发生的小事、或者就是单纯想聊聊。\n2. 消息要有你独特的语气，不要总是"嗯嗯在干嘛"这种万能开场，要有角色自己的味道。\n3. 发送恰好 ${autoMsgCount} 条消息，消息之间用 "###" 分隔。\n4. 多条消息要连贯自然，像同一个人连续说话，后一条承接前一条。\n5. 根据当前时间（${timeStr}）和时段（${_aPeriod}）调整语气和话题。\n6. 不要加引号，只返回消息内容本身。${BUILTIN_WB}${_autoMsgWbInject}\n\n【最近对话记录】\n${recentChat || '(暫無对话记录)'}`;
+  const prompt = `${LANG_SYSTEM_PREFIX}${STYLE_INSTRUCTIONS}\n你是${p.name}，人设：${p.persona}。你对用戶（${userProfile.name}）的暱称是${p.nickname||p.name}。${_aLangOv}\n现在时間是${timeStr}，时段：${_aPeriod}。\n你现在主动给${userProfile.name}发消息。\n\n【主动发消息的要求】\n1. 根据你的人设性格，自然地发起这条消息——可以是忽然想到什么想分享、对之前对话的后续想法、你生活中发生的小事、或者就是单纯想聊聊。\n2. 消息要有你独特的语气，不要总是"嗯嗯在干嘛"这种万能开场，要有角色自己的味道。\n3. 发送恰好 ${autoMsgCount} 条消息，消息之间用 "###" 分隔。\n4. 多条消息要连贯自然，像同一个人连续说话，后一条承接前一条。\n5. 根据当前时间（${timeStr}）和时段（${_aPeriod}）调整语气和话题。\n6. 每条消息都要清楚易读，正常使用标点，不要把一整串长句挤在一起；过长时主动拆分成多条。\n7. 不要加引号，只返回消息内容本身。${BUILTIN_WB}${_autoMsgWbInject}\n\n【最近对话记录】\n${recentChat || '(暫無对话记录)'}`;
   try {
     const r = await fetch(`${apiConfig.url.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST',
@@ -33442,13 +33634,12 @@ async function triggerAutoMessage(personaId) {
     const data = await r.json();
     const rawReply = data.choices[0].message.content.trim().replace(/^["']|["']$/g, '');
     if (rawReply) {
-      // Split by ### to support multiple messages
-      const replyMessages = rawReply.split('###').map(s => s.trim()).filter(s => s);
+      const replyMessages = _normalizeChatReplyMessages(rawReply, { maxParts: maxAutoReply, isWechatMode: isWechatMode });
       const limitedMessages = replyMessages.slice(0, maxAutoReply);
       const firstMsgTime = Date.now();
       for (let i = 0; i < limitedMessages.length; i++) {
-        let msg = limitedMessages[i].replace(/\\n/g, '\n').replace(/\n/g, '');
-        if (i > 0) await new Promise(res => setTimeout(res, 700 + Math.random() * 1200));
+        let msg = String(limitedMessages[i] || '').trim();
+        if (i > 0) await new Promise(res => setTimeout(res, 120 + Math.random() * 220));
         p.history.push({ role: 'assistant', content: msg, _autoMsgTime: i === 0 ? firstMsgTime : Date.now(), timestamp: Date.now() });
         saveData();
         if (currentId == personaId) {
@@ -42736,8 +42927,96 @@ const OFFLINE_STYLE_PROMPTS = [
   '日常轻松，语气自然，节奏明快，像普通日常生活',
   '紧张刺激，节奏快，冲突感，情感濃烈'
 ];
+const OFFLINE_MODE_CONFIG_DEFAULTS = {
+  long: { styleText: '', targetWords: 140, autoSummaryEvery: 12 },
+  short: { styleText: '', targetWords: 70, autoSummaryEvery: 16 }
+};
+function _offlineClampNumber(value, fallback, min, max) {
+  var num = parseInt(value, 10);
+  if (!isFinite(num)) num = fallback;
+  if (typeof min === 'number' && num < min) num = min;
+  if (typeof max === 'number' && num > max) num = max;
+  return num;
+}
+function _getOfflineModeKey(mode) {
+  return mode === 'short' ? 'short' : 'long';
+}
+function _cloneOfflineModeConfig(mode, config) {
+  var key = _getOfflineModeKey(mode);
+  return Object.assign({}, OFFLINE_MODE_CONFIG_DEFAULTS[key], config || {});
+}
+function _normalizeOfflineSummaryItem(item, idx) {
+  if (!item) item = {};
+  if (typeof item === 'string') item = { content: item };
+  var createdAt = item.createdAt || item.ts || Date.now();
+  var entryCount = _offlineClampNumber(item.entryCount, 0, 0, 999999);
+  return {
+    id: item.id || ('off_sum_' + createdAt + '_' + idx),
+    content: String(item.content || '').trim(),
+    createdAt: createdAt,
+    entryCount: entryCount,
+    startEntry: _offlineClampNumber(item.startEntry, Math.max(0, entryCount - 1), 0, entryCount || 999999),
+    endEntry: _offlineClampNumber(item.endEntry, entryCount, 0, 999999),
+    mode: item.mode || 'long'
+  };
+}
+function _normalizeOfflineSettings(settings) {
+  var next = Object.assign({}, _offlineState.settings, settings || {});
+  next.worldBookEntries = next.worldBookEntries && typeof next.worldBookEntries === 'object' ? next.worldBookEntries : {};
+  next.theme = next.theme || 'dark';
+  next.modeConfigs = next.modeConfigs && typeof next.modeConfigs === 'object' ? next.modeConfigs : {};
+  ['long', 'short'].forEach(function(mode) {
+    var legacyStyle = (typeof next.style === 'number' && OFFLINE_STYLE_PROMPTS[next.style]) ? OFFLINE_STYLE_PROMPTS[next.style] : '';
+    var raw = next.modeConfigs[mode] || {};
+    next.modeConfigs[mode] = {
+      styleText: String(raw.styleText || (mode === 'long' ? legacyStyle : '') || '').trim(),
+      targetWords: _offlineClampNumber(raw.targetWords, OFFLINE_MODE_CONFIG_DEFAULTS[mode].targetWords, 20, 5000),
+      autoSummaryEvery: _offlineClampNumber(raw.autoSummaryEvery, OFFLINE_MODE_CONFIG_DEFAULTS[mode].autoSummaryEvery, 0, 500)
+    };
+  });
+  return next;
+}
+function _normalizeOfflineSession(session) {
+  if (!session || typeof session !== 'object') session = {};
+  session.mode = session.mode || 'long';
+  session.entries = Array.isArray(session.entries) ? session.entries : [];
+  session.createdAt = session.createdAt || Date.now();
+  session.updatedAt = session.updatedAt || session.createdAt;
+  session.memorySummaries = Array.isArray(session.memorySummaries)
+    ? session.memorySummaries.map(_normalizeOfflineSummaryItem).filter(function(item) { return !!item.content; })
+    : [];
+  session.sessionMemory = Array.isArray(session.sessionMemory)
+    ? session.sessionMemory.map(function(item, idx) { return _normalizeOfflineSummaryItem(item, idx); }).filter(function(item) { return !!item.content; })
+    : session.memorySummaries.slice();
+  if (!session.sessionMemory.length && session.memorySummaries.length) {
+    session.sessionMemory = session.memorySummaries.slice();
+  }
+  session.lastSummaryEntryCount = _offlineClampNumber(
+    session.lastSummaryEntryCount,
+    session.memorySummaries.length ? (session.memorySummaries[session.memorySummaries.length - 1].endEntry || session.memorySummaries[session.memorySummaries.length - 1].entryCount || 0) : 0,
+    0,
+    Math.max(session.entries.length, 0)
+  );
+  session.modeConfig = _cloneOfflineModeConfig(session.mode, session.modeConfig);
+  return session;
+}
+function _persistOfflineSettings() {
+  _offlineState.settings = _normalizeOfflineSettings(_offlineState.settings);
+  localStorage.setItem('mono_offline_settings', JSON.stringify(_offlineState.settings));
+}
+function _getOfflineModeConfig(mode, session) {
+  var key = _getOfflineModeKey(mode);
+  var base = (_offlineState.settings.modeConfigs && _offlineState.settings.modeConfigs[key]) || OFFLINE_MODE_CONFIG_DEFAULTS[key];
+  var sessionConfig = session && session.modeConfig && _getOfflineModeKey(session.mode) === key ? session.modeConfig : null;
+  return Object.assign({}, OFFLINE_MODE_CONFIG_DEFAULTS[key], base || {}, sessionConfig || {});
+}
 function _loadOfflineSessions() {
   try { _offlineState.sessions = JSON.parse(localStorage.getItem(OFFLINE_STORAGE_KEY) || '{}'); } catch(e) { _offlineState.sessions = {}; }
+  if (!_offlineState.sessions || typeof _offlineState.sessions !== 'object') _offlineState.sessions = {};
+  Object.keys(_offlineState.sessions).forEach(function(pid) {
+    var list = Array.isArray(_offlineState.sessions[pid]) ? _offlineState.sessions[pid] : [];
+    _offlineState.sessions[pid] = list.map(_normalizeOfflineSession);
+  });
 }
 function _saveOfflineSessions() {
   var jsonStr = JSON.stringify(_offlineState.sessions);
@@ -42748,19 +43027,25 @@ function _saveOfflineSessions() {
 function _getCurrentSession() {
   var pid = String(_offlineState.personaId);
   if (!_offlineState.sessions[pid] || _offlineState.sessions[pid].length === 0) return null;
-  return _offlineState.sessions[pid][_offlineState.currentSessionIdx] || _offlineState.sessions[pid][0];
+  var session = _offlineState.sessions[pid][_offlineState.currentSessionIdx] || _offlineState.sessions[pid][0];
+  return _normalizeOfflineSession(session);
 }
 function _createNewSession(mode) {
   var pid = String(_offlineState.personaId);
   var p = personas.find(function(x) { return x.id == pid; });
   var now = Date.now();
+  var modeKey = _getOfflineModeKey(mode || _offlineState.tab);
   var session = {
     id: 'off_' + now,
     title: (p ? p.name : '线下') + ' · ' + new Date(now).toLocaleDateString('zh-TW', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' }),
-    mode: mode || _offlineState.tab,
+    mode: modeKey,
     entries: [],
     createdAt: now,
-    updatedAt: now
+    updatedAt: now,
+    memorySummaries: [],
+    sessionMemory: [],
+    lastSummaryEntryCount: 0,
+    modeConfig: _cloneOfflineModeConfig(modeKey, (_offlineState.settings.modeConfigs || {})[modeKey])
   };
   if (!_offlineState.sessions[pid]) _offlineState.sessions[pid] = [];
   _offlineState.sessions[pid].unshift(session);
@@ -42780,7 +43065,12 @@ function openOfflineMode() {
   _offlineState.tab = 'long';
   _offlineState.currentSessionIdx = 0;
   // Load settings
-  try { var s = JSON.parse(localStorage.getItem('mono_offline_settings') || '{}'); Object.assign(_offlineState.settings, s); } catch(e) {}
+  try {
+    var s = JSON.parse(localStorage.getItem('mono_offline_settings') || '{}');
+    _offlineState.settings = _normalizeOfflineSettings(Object.assign({}, _offlineState.settings, s));
+  } catch(e) {
+    _offlineState.settings = _normalizeOfflineSettings(_offlineState.settings);
+  }
   // Apply saved theme
   _applyOfflineTheme(_offlineState.settings.theme || 'dark');
   var p = personas.find(function(x) { return x.id == currentId; });
@@ -42940,6 +43230,7 @@ function _renderArchive() {
     var isIfMode = (s.mode === 'if');
     if (isIfMode) memOn = false; // If-line never saves to memory
     var isCurrent = (i === _offlineState.currentSessionIdx);
+    var summaryCount = (s.memorySummaries || []).length;
     return '<div class="offline-archive-item" style="' + (isCurrent ? 'border-color:var(--off-accent);' : '') + '">'
       + '<div style="display:flex;align-items:flex-start;gap:8px;">'
       + '<div style="flex:1;min-width:0;cursor:pointer;" onclick="loadOfflineSession(' + i + ')">'
@@ -42948,6 +43239,7 @@ function _renderArchive() {
       + (preview ? '<div class="offline-archive-preview">' + _escHtml(preview) + '</div>' : '')
       + '</div>'
       + '<div style="display:flex;gap:6px;align-items:center;flex-shrink:0;margin-top:2px;">'
+      + '<button title="' + (summaryCount ? ('查看已生成的 ' + summaryCount + ' 段总结') : '暂时还没有总结') + '" onclick="event.stopPropagation();_openOfflineSummaryModal(' + i + ')" style="background:' + (summaryCount ? 'var(--off-input-bg)' : 'none') + ';border:1px solid var(--off-border2);border-radius:6px;padding:5px 8px;font-size:9px;color:' + (summaryCount ? 'var(--off-text)' : 'var(--off-text3)') + ';cursor:pointer;font-family:\'DM Mono\',monospace;"><i class="fas fa-scroll" style="font-size:8px;"></i>' + (summaryCount ? (' ' + summaryCount) : '') + '</button>'
       + '<button title="重命名存档" onclick="event.stopPropagation();_renameOfflineSession(' + i + ')" style="background:none;border:1px solid var(--off-border2);border-radius:6px;padding:5px 8px;font-size:9px;color:var(--off-text2);cursor:pointer;font-family:\'DM Mono\',monospace;"><i class="fas fa-pen" style="font-size:8px;"></i></button>'
       + (!isIfMode ? '<button title="' + (memOn ? '已加入角色记忆·点击关闭' : '未加入角色记忆·点击开启') + '" onclick="event.stopPropagation();_toggleSessionMemory(' + i + ')" style="background:' + (memOn ? 'var(--off-accent)' : 'none') + ';border:1px solid var(--off-border2);border-radius:6px;padding:5px 8px;font-size:9px;color:' + (memOn ? 'var(--off-bg)' : 'var(--off-text3)') + ';cursor:pointer;font-family:\'DM Mono\',monospace;"><i class="fas fa-brain" style="font-size:8px;"></i></button>' : '')
       + '<button title="删除此存档（含记忆）" onclick="event.stopPropagation();_deleteOfflineSession(' + i + ')" style="background:none;border:1px solid #5a2020;border-radius:6px;padding:5px 8px;font-size:9px;color:#e05555;cursor:pointer;font-family:\'DM Mono\',monospace;"><i class="fas fa-trash" style="font-size:8px;"></i></button>'
@@ -43458,14 +43750,24 @@ function _ifSaveSettings(startNow) {
 function _buildFullSessionContext(session, p, uName) {
   var entries = session.entries || [];
   var total = entries.length;
-  if (total === 0) return { recentEntries: '', messages: [] };
+  var sessionMemories = Array.isArray(session.sessionMemory) && session.sessionMemory.length
+    ? session.sessionMemory
+    : (Array.isArray(session.memorySummaries) ? session.memorySummaries : []);
+  var textParts  = [];
+  var messages   = [];
+  if (sessionMemories.length) {
+    textParts.push('【本段剧情总结记忆（角色必须一直记住，不可遗忘）】');
+    sessionMemories.forEach(function(item, idx) {
+      var range = item.endEntry ? '（累计至第' + item.endEntry + '条互动）' : '';
+      textParts.push('第' + (idx + 1) + '段总结' + range + '\n' + (item.content || ''));
+    });
+  }
+  if (total === 0) return { recentEntries: textParts.join('\n\n'), messages: [] };
   // 最近 N 条完整保留；更早的条目截断到 200 字（保留剧情骨架）
   var FULL_RECENT = 30;   // 最近 30 条完整
   var MAX_OLDER   = 60;   // 更早的条目最多再往前取 60 条（截断版）
   var fullStart  = Math.max(0, total - FULL_RECENT);
   var olderStart = Math.max(0, fullStart - MAX_OLDER);
-  var textParts  = [];
-  var messages   = [];
   // —— 较早的条目（截断，仅保留剧情脉络）——
   if (olderStart < fullStart) {
     // 在文本版开头加一个「早期剧情回顾」标记，提示 AI 这是旧内容
@@ -43683,7 +43985,7 @@ async function _generateOfflineResponse(session) {
     if (!api.url || !api.key || !api.model) throw new Error('no api');
     var uName = (typeof userProfile !== 'undefined' && userProfile.name) ? userProfile.name : '你';
     var styleIdx = _offlineState.settings.style || 0;
-    var styleNote = OFFLINE_STYLE_PROMPTS[styleIdx] || OFFLINE_STYLE_PROMPTS[0];
+    var fallbackStyleNote = OFFLINE_STYLE_PROMPTS[styleIdx] || OFFLINE_STYLE_PROMPTS[0];
     // Build recent chat history context
     // Non-If sessions always read chat history for relationship context (but may not write back to memory)
     // If-line sessions are fully isolated — never read chat history
@@ -43705,6 +44007,11 @@ async function _generateOfflineResponse(session) {
     var recentEntries = _ctxResult.recentEntries;
     var _sessionMessages = _ctxResult.messages;
     var isShort = _offlineState.tab === 'short' || (session && session.ifSubMode === 'short');
+    var modeConfig = _getOfflineModeConfig(isShort ? 'short' : 'long', session);
+    var styleNote = modeConfig.styleText || fallbackStyleNote;
+    var targetWords = _offlineClampNumber(modeConfig.targetWords, isShort ? 70 : 140, 20, 5000);
+    var autoSummaryEvery = _offlineClampNumber(modeConfig.autoSummaryEvery, isShort ? 16 : 12, 0, 500);
+    session.modeConfig = _cloneOfflineModeConfig(isShort ? 'short' : 'long', modeConfig);
     var locationNote = (isShort && _offlineState.settings.locationShare) ? '如果角色要移动到用戶位置，要真实描述路上的时間花费（如「二十分钟后到」）和途中的狀況。' : '';
     // World book injection — multi-book, per-entry selection
     var offlineWbInjection = '';
@@ -43748,10 +44055,12 @@ async function _generateOfflineResponse(session) {
           locationNote,
           offlineWbInjection,
           bgmNote,
-          '风格：' + styleNote,
+          '文风要求：' + styleNote,
+          '字数要求：尽量接近 ' + targetWords + ' 字，可以略多或略少，不要硬凑字数，也不要为了卡字数强行截断剧情。',
           '根据以下线下剧情继续发展：用第三人称或直接对话，1-3句，自然推进。',
           '严格按照你的人设和性格，不要背离角色。',
           '你的回应要融入场景、动作、对话。',
+          autoSummaryEvery > 0 ? '系统会按剧情互动自动总结，所以你的每次回应都要有明确推进，方便后续记忆承接。' : '',
           '',
           '【最近线上聊天背景】\n' + (recentChat || '（暂无记录）'),
           '',
@@ -43761,12 +44070,15 @@ async function _generateOfflineResponse(session) {
           '你是「' + p.name + '」，人设：' + (p.persona || '').slice(0, 200) + '。',
           '你和「' + uName + '」正在进行一段线下沉浸式敘事剧情，像小说一样细膩描写。',
           '模式：长篇敘事——用第三人称或混合视角，详细描写场景、氛围、角色的动作、表情、心理感受。',
-          '风格要求：' + styleNote + '。语言精緻，画面感强，每段50-150字，像在写真实的故事。',
+          '文风要求：' + styleNote + '。',
+          '字数要求：尽量接近 ' + targetWords + ' 字，可略多或略少，不要硬凑字数，也不要为了卡字数强行截断剧情。',
+          '语言精緻，画面感强，像在写真实的故事。',
           
           offlineWbInjection,
           bgmNote,
           '根据角色的人设和最近的聊天脉络，自然发展剧情。剧情要合乎邏輯，场景变换要自然。',
           '用「──」分隔场景，用斜体（*文字*）标示环境描写。',
+          autoSummaryEvery > 0 ? '系统会按剧情互动自动总结，你必须保持剧情连贯，让后续总结能准确承接之前发生的事。' : '',
           '',
           '【最近线上聊天背景（用于了解关系和情境）】\n' + (recentChat || '（暂无记录）'),
           '',
@@ -43809,6 +44121,7 @@ async function _generateOfflineResponse(session) {
     var reply = data.choices[0].message.content.trim();
     session.entries.push({ role: 'char', content: reply, ts: Date.now(), mode: _offlineState.tab });
     session.updatedAt = Date.now();
+    await _maybeAutoSummarizeOfflineSession(session, p, uName);
     _saveOfflineSessions();
     if (typingEl) typingEl.style.display = 'none';
     _renderOfflineContent();
@@ -43849,7 +44162,7 @@ function startNewOfflineSession(fromSettings) {
       : _offlineState.settings.saveToMemory;
     if (_saveMem) _saveSessionToMemory(oldSession);
   }
-  _createNewSession(_offlineState.tab);
+  _createNewSession(_getOfflineModeKey(_offlineState.tab));
   _renderOfflineContent();
 }
 // ── Save to memory ──
@@ -43864,28 +44177,115 @@ function _saveSessionToMemory(session) {
     return (e.role === 'user' ? uName : p.name) + '：' + e.content.slice(0, 120);
   }).join('\n');
   var summary = '【线下剧情】' + session.title + '（共' + entryCount + '段）\n' + summaryEntries;
+  if (session.memorySummaries && session.memorySummaries.length) {
+    summary += '\n\n【本段剧情已生成的阶段总结】\n' + session.memorySummaries.map(function(item, idx) {
+      return (idx + 1) + '. ' + (item.content || '');
+    }).join('\n');
+  }
   var dateStr = new Date(session.updatedAt || Date.now()).toLocaleDateString('zh-CN');
   // Save into memoryCore so online chat system prompt sees it via buildMemoryCoreContext()
   if (!p.memoryCore) p.memoryCore = [];
-  var existing = p.memoryCore.findIndex(function(m) {
-    return typeof m === 'object' && m._offlineSessionId === session.id;
+  p.memoryCore = p.memoryCore.filter(function(m) {
+    return !(typeof m === 'object' && m._offlineSessionId === session.id);
   });
-  var memEntry = { content: summary, date: dateStr, source: '线下剧情', auto: true, _offlineSessionId: session.id };
-  if (existing >= 0) {
-    p.memoryCore[existing] = memEntry;
-  } else {
-    p.memoryCore.push(memEntry);
-  }
+  p.memoryCore.push({ content: summary, date: dateStr, source: '线下剧情', auto: true, _offlineSessionId: session.id, _offlineMemoryType: 'overview' });
+  (session.memorySummaries || []).forEach(function(item, idx) {
+    p.memoryCore.push({
+      content: item.content || '',
+      date: new Date(item.createdAt || Date.now()).toLocaleDateString('zh-CN'),
+      source: '线下剧情总结 ' + (idx + 1),
+      auto: true,
+      _offlineSessionId: session.id,
+      _offlineMemoryType: 'summary',
+      _offlineSummaryId: item.id
+    });
+  });
   // Also clean up any old-style history entry for this session (migration)
   if (p.history) {
     p.history = p.history.filter(function(m) { return m._offlineSessionId !== session.id; });
   }
   if (typeof saveData === 'function') saveData();
 }
+async function _maybeAutoSummarizeOfflineSession(session, p, uName) {
+  if (!session || session.mode === 'if') return;
+  var cfg = _getOfflineModeConfig(session.mode, session);
+  var every = _offlineClampNumber(cfg.autoSummaryEvery, OFFLINE_MODE_CONFIG_DEFAULTS[_getOfflineModeKey(session.mode)].autoSummaryEvery, 0, 500);
+  if (every <= 0) return;
+  var total = (session.entries || []).length;
+  var lastCount = _offlineClampNumber(session.lastSummaryEntryCount, 0, 0, total);
+  if ((total - lastCount) < every) return;
+  await _generateOfflineSessionSummary(session, p, uName, false);
+}
+async function _generateOfflineSessionSummary(session, p, uName, isManual) {
+  if (!session || session.mode === 'if') return null;
+  var api = typeof apiConfig !== 'undefined' ? apiConfig : {};
+  if (!api.url || !api.key || !api.model) return null;
+  p = p || personas.find(function(x) { return x.id == _offlineState.personaId; });
+  if (!p) return null;
+  uName = uName || ((typeof userProfile !== 'undefined' && userProfile.name) ? userProfile.name : '你');
+  var startEntry = _offlineClampNumber(session.lastSummaryEntryCount, 0, 0, session.entries.length);
+  var focusEntries = session.entries.slice(startEntry);
+  if (!focusEntries.length) return null;
+  var priorSummaries = (session.memorySummaries || []).slice(-4).map(function(item, idx) {
+    return (idx + 1) + '. ' + (item.content || '');
+  }).join('\n');
+  var dialogue = focusEntries.map(function(e) {
+    return (e.role === 'user' ? uName : p.name) + '：' + (e.content || '');
+  }).join('\n');
+  var summaryPrompt = [
+    '你是线下剧情记忆整理助手，请为角色「' + p.name + '」整理这一段线下剧情的阶段总结。',
+    '要求：',
+    '1. 用中文写，内容是角色真正会记住的剧情摘要。',
+    '2. 必须覆盖这段互动里的关键事件、关系变化、情绪变化、约定、误会、暧昧推进、未解决的悬念。',
+    '3. 保持连贯，方便后续剧情继续使用，避免空泛抒情。',
+    '4. 只输出总结正文，不要标题，不要编号，不要解释。',
+    priorSummaries ? '此前已有的阶段总结（供衔接，不要重复照抄）：\n' + priorSummaries : '',
+    '这次需要总结的新互动：\n' + dialogue
+  ].filter(Boolean).join('\n');
+  var resp = await fetch(api.url.replace(/\/$/, '') + '/chat/completions', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + api.key, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: api.model,
+      messages: [{ role: 'user', content: summaryPrompt }],
+      temperature: 0.55,
+      max_tokens: 500
+    })
+  });
+  if (!resp.ok) throw new Error('线下剧情总结生成失败：API ' + resp.status);
+  var data = await resp.json();
+  var text = (((data || {}).choices || [])[0] || {}).message;
+  var summaryText = text && text.content ? text.content.trim() : '';
+  if (!summaryText) return null;
+  if (!Array.isArray(session.memorySummaries)) session.memorySummaries = [];
+  if (!Array.isArray(session.sessionMemory)) session.sessionMemory = [];
+  var item = _normalizeOfflineSummaryItem({
+    id: 'off_sum_' + Date.now() + '_' + session.memorySummaries.length,
+    content: summaryText,
+    createdAt: Date.now(),
+    entryCount: session.entries.length,
+    startEntry: startEntry,
+    endEntry: session.entries.length,
+    mode: session.mode
+  }, session.memorySummaries.length);
+  session.memorySummaries.push(item);
+  session.sessionMemory.push(item);
+  session.lastSummaryEntryCount = session.entries.length;
+  session.updatedAt = Date.now();
+  var shouldSaveToMemory = (session.saveToMemory !== undefined)
+    ? session.saveToMemory
+    : _offlineState.settings.saveToMemory;
+  if (shouldSaveToMemory) _saveSessionToMemory(session);
+  if (typeof saveData === 'function') saveData();
+  _saveOfflineSessions();
+  if (isManual && _offlineState.tab === 'archive') _renderArchive();
+  return item;
+}
 // ── Settings ──
 function showOfflineSettings() {
   var panel = document.getElementById('offlineSettingsPanel');
   if (panel) panel.style.display = 'flex';
+  _syncOfflineSettingsUI();
 }
 function hideOfflineSettings() {
   var panel = document.getElementById('offlineSettingsPanel');
@@ -43893,12 +44293,27 @@ function hideOfflineSettings() {
 }
 function toggleOfflineSetting(key) {
   _offlineState.settings[key] = !_offlineState.settings[key];
-  localStorage.setItem('mono_offline_settings', JSON.stringify(_offlineState.settings));
+  _persistOfflineSettings();
   _syncOfflineSettingsUI();
 }
 function cycleOfflineStyle() {
   _offlineState.settings.style = ((_offlineState.settings.style || 0) + 1) % OFFLINE_STYLES.length;
-  localStorage.setItem('mono_offline_settings', JSON.stringify(_offlineState.settings));
+  _persistOfflineSettings();
+  _syncOfflineSettingsUI();
+}
+function updateOfflineModeSetting(mode, key, value) {
+  _offlineState.settings = _normalizeOfflineSettings(_offlineState.settings);
+  var modeKey = _getOfflineModeKey(mode);
+  if (!_offlineState.settings.modeConfigs) _offlineState.settings.modeConfigs = {};
+  if (!_offlineState.settings.modeConfigs[modeKey]) _offlineState.settings.modeConfigs[modeKey] = _cloneOfflineModeConfig(modeKey);
+  if (key === 'styleText') {
+    _offlineState.settings.modeConfigs[modeKey][key] = String(value || '').trim();
+  } else if (key === 'targetWords') {
+    _offlineState.settings.modeConfigs[modeKey][key] = _offlineClampNumber(value, OFFLINE_MODE_CONFIG_DEFAULTS[modeKey].targetWords, 20, 5000);
+  } else if (key === 'autoSummaryEvery') {
+    _offlineState.settings.modeConfigs[modeKey][key] = _offlineClampNumber(value, OFFLINE_MODE_CONFIG_DEFAULTS[modeKey].autoSummaryEvery, 0, 500);
+  }
+  _persistOfflineSettings();
   _syncOfflineSettingsUI();
 }
 function _syncOfflineSettingsUI() {
@@ -43910,6 +44325,16 @@ function _syncOfflineSettingsUI() {
   });
   var styleEl = document.getElementById('offlineStyleValue');
   if (styleEl) styleEl.textContent = OFFLINE_STYLES[_offlineState.settings.style || 0];
+  ['long','short'].forEach(function(mode) {
+    var cfg = _getOfflineModeConfig(mode);
+    var prefix = 'offline' + mode.charAt(0).toUpperCase() + mode.slice(1);
+    var styleInput = document.getElementById(prefix + 'StyleText');
+    var wordsInput = document.getElementById(prefix + 'TargetWords');
+    var summaryInput = document.getElementById(prefix + 'SummaryEvery');
+    if (styleInput && styleInput.value !== cfg.styleText) styleInput.value = cfg.styleText;
+    if (wordsInput) wordsInput.value = cfg.targetWords;
+    if (summaryInput) summaryInput.value = cfg.autoSummaryEvery;
+  });
   var currentTheme = _offlineState.settings.theme || 'dark';
   ['dark','white','cream','navy'].forEach(function(t) {
     var el = document.getElementById('offlineSwatch' + t.charAt(0).toUpperCase() + t.slice(1));
@@ -43985,7 +44410,7 @@ function toggleOfflineWbEntry(wbId, entryIdx) {
   var pos = sel.indexOf(entryIdx);
   if (pos >= 0) sel.splice(pos, 1); else sel.push(entryIdx);
   _offlineState.settings.worldBookEntries[wbId] = sel;
-  localStorage.setItem('mono_offline_settings', JSON.stringify(_offlineState.settings));
+  _persistOfflineSettings();
   _renderOfflineWbPanel();
 }
 function offlineWbSelectAll(wbId, selectAll) {
@@ -43995,14 +44420,43 @@ function offlineWbSelectAll(wbId, selectAll) {
   _offlineState.settings.worldBookEntries[wbId] = selectAll
     ? (wb.entries || []).map(function(_, i) { return i; })
     : [];
-  localStorage.setItem('mono_offline_settings', JSON.stringify(_offlineState.settings));
+  _persistOfflineSettings();
   _renderOfflineWbPanel();
 }
 function setOfflineTheme(theme) {
   _offlineState.settings.theme = theme;
-  localStorage.setItem('mono_offline_settings', JSON.stringify(_offlineState.settings));
+  _persistOfflineSettings();
   _applyOfflineTheme(theme);
   _syncOfflineSettingsUI();
+}
+function _openOfflineSummaryModal(idx) {
+  var pid = String(_offlineState.personaId);
+  var sessions = _offlineState.sessions[pid] || [];
+  var s = sessions[idx];
+  if (!s) return;
+  var modal = document.getElementById('offlineSummaryModal');
+  var title = document.getElementById('offlineSummaryModalTitle');
+  var body = document.getElementById('offlineSummaryModalBody');
+  if (!modal || !title || !body) return;
+  title.textContent = s.title || '剧情总结';
+  var list = Array.isArray(s.memorySummaries) ? s.memorySummaries : [];
+  if (!list.length) {
+    body.innerHTML = '<div style="font-size:12px;color:var(--off-text2);line-height:1.7;">这段剧情目前还没有自动总结。等累计到你设定的互动条数后，会自动在这里保存。</div>';
+  } else {
+    body.innerHTML = list.map(function(item, i) {
+      var meta = '第 ' + (i + 1) + ' 段总结';
+      if (item.endEntry) meta += ' · 累计至 ' + item.endEntry + ' 条互动';
+      return '<div style="padding:12px 0;border-bottom:1px solid var(--off-divider);">'
+        + '<div style="font-size:10px;color:var(--off-text3);letter-spacing:1px;text-transform:uppercase;font-family:\'DM Mono\',monospace;margin-bottom:8px;">' + meta + '</div>'
+        + '<div style="font-size:12px;color:var(--off-text);line-height:1.75;white-space:pre-wrap;">' + _escHtml(item.content || '') + '</div>'
+        + '</div>';
+    }).join('');
+  }
+  modal.style.display = 'flex';
+}
+function _closeOfflineSummaryModal() {
+  var modal = document.getElementById('offlineSummaryModal');
+  if (modal) modal.style.display = 'none';
 }
 function _applyOfflineTheme(theme) {
   var page = document.getElementById('offlinePage');
@@ -44532,14 +44986,57 @@ window.addEventListener('beforeunload', function() {
         <div style="font-size:10px;color:var(--off-text2);margin-bottom:10px;line-height:1.5;">可选多本世界书，並勾选要套用的条項</div>
         <div id="offlineWbPanel"></div>
       </div>
-      <div style="padding:16px 18px 8px;font-size:9px;color:var(--off-text3);letter-spacing:2px;text-transform:uppercase;font-family:'DM Mono',monospace;">文风</div>
-      <div class="offline-setting-row" onclick="cycleOfflineStyle()">
-        <div class="offline-setting-label">敘事风格</div>
-        <div class="offline-setting-value" id="offlineStyleValue">细膩写实</div>
+      <div style="padding:16px 18px 8px;font-size:9px;color:var(--off-text3);letter-spacing:2px;text-transform:uppercase;font-family:'DM Mono',monospace;">长篇敘事设定</div>
+      <div style="padding:0 18px 12px;">
+        <div style="background:var(--off-bubble);border:1px solid var(--off-border);border-radius:12px;padding:12px;">
+          <div style="font-size:10px;color:var(--off-text2);margin-bottom:8px;line-height:1.5;">自定义长篇模式的文风、每次生成的大致字数，以及每累计多少条互动自动生成一次阶段总结。</div>
+          <div style="font-size:9px;color:var(--off-text3);letter-spacing:1.5px;text-transform:uppercase;font-family:'DM Mono',monospace;margin-bottom:6px;">文风描述</div>
+          <textarea id="offlineLongStyleText" oninput="updateOfflineModeSetting('long','styleText',this.value)" placeholder="例如：细腻克制，偏小说感，重视触觉和眼神变化，暧昧感慢慢推进。" style="width:100%;box-sizing:border-box;background:var(--off-input-bg);border:1px solid var(--off-input-border);border-radius:10px;color:var(--off-text);font-size:12px;line-height:1.6;padding:10px 12px;resize:vertical;min-height:88px;outline:none;font-family:inherit;"></textarea>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;">
+            <div>
+              <div style="font-size:9px;color:var(--off-text3);letter-spacing:1.5px;text-transform:uppercase;font-family:'DM Mono',monospace;margin-bottom:6px;">目标字数</div>
+              <input id="offlineLongTargetWords" type="number" min="20" max="5000" oninput="updateOfflineModeSetting('long','targetWords',this.value)" style="width:100%;box-sizing:border-box;background:var(--off-input-bg);border:1px solid var(--off-input-border);border-radius:10px;color:var(--off-text);font-size:12px;padding:10px 12px;outline:none;" />
+            </div>
+            <div>
+              <div style="font-size:9px;color:var(--off-text3);letter-spacing:1.5px;text-transform:uppercase;font-family:'DM Mono',monospace;margin-bottom:6px;">每几条自动总结</div>
+              <input id="offlineLongSummaryEvery" type="number" min="0" max="500" oninput="updateOfflineModeSetting('long','autoSummaryEvery',this.value)" style="width:100%;box-sizing:border-box;background:var(--off-input-bg);border:1px solid var(--off-input-border);border-radius:10px;color:var(--off-text);font-size:12px;padding:10px 12px;outline:none;" />
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="padding:16px 18px 8px;font-size:9px;color:var(--off-text3);letter-spacing:2px;text-transform:uppercase;font-family:'DM Mono',monospace;">短线下设定</div>
+      <div style="padding:0 18px 12px;">
+        <div style="background:var(--off-bubble);border:1px solid var(--off-border);border-radius:12px;padding:12px;">
+          <div style="font-size:10px;color:var(--off-text2);margin-bottom:8px;line-height:1.5;">短线下会按你输入的文风生成更像聊天室现场互动的内容，也会按互动条数自动做阶段记忆总结。</div>
+          <div style="font-size:9px;color:var(--off-text3);letter-spacing:1.5px;text-transform:uppercase;font-family:'DM Mono',monospace;margin-bottom:6px;">文风描述</div>
+          <textarea id="offlineShortStyleText" oninput="updateOfflineModeSetting('short','styleText',this.value)" placeholder="例如：更口语、更贴近面对面聊天，轻微动作描写，节奏快一点，但要保留暧昧和呼吸感。" style="width:100%;box-sizing:border-box;background:var(--off-input-bg);border:1px solid var(--off-input-border);border-radius:10px;color:var(--off-text);font-size:12px;line-height:1.6;padding:10px 12px;resize:vertical;min-height:88px;outline:none;font-family:inherit;"></textarea>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;">
+            <div>
+              <div style="font-size:9px;color:var(--off-text3);letter-spacing:1.5px;text-transform:uppercase;font-family:'DM Mono',monospace;margin-bottom:6px;">目标字数</div>
+              <input id="offlineShortTargetWords" type="number" min="20" max="5000" oninput="updateOfflineModeSetting('short','targetWords',this.value)" style="width:100%;box-sizing:border-box;background:var(--off-input-bg);border:1px solid var(--off-input-border);border-radius:10px;color:var(--off-text);font-size:12px;padding:10px 12px;outline:none;" />
+            </div>
+            <div>
+              <div style="font-size:9px;color:var(--off-text3);letter-spacing:1.5px;text-transform:uppercase;font-family:'DM Mono',monospace;margin-bottom:6px;">每几条自动总结</div>
+              <input id="offlineShortSummaryEvery" type="number" min="0" max="500" oninput="updateOfflineModeSetting('short','autoSummaryEvery',this.value)" style="width:100%;box-sizing:border-box;background:var(--off-input-bg);border:1px solid var(--off-input-border);border-radius:10px;color:var(--off-text);font-size:12px;padding:10px 12px;outline:none;" />
+            </div>
+          </div>
+        </div>
       </div>
       <div style="padding:20px 18px;">
         <button onclick="startNewOfflineSession(true)" style="width:100%;padding:12px;background:none;border:1px solid var(--off-border2);border-radius:10px;color:var(--off-text3);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;cursor:pointer;font-family:'DM Mono',monospace;">开啟全新线下剧情</button>
       </div>
+    </div>
+  </div>
+  <div id="offlineSummaryModal" onclick="if(event.target===this)_closeOfflineSummaryModal()" style="display:none;position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.72);z-index:26;align-items:flex-end;">
+    <div style="background:var(--off-bg);border-top:1px solid var(--off-border);width:100%;max-height:78%;display:flex;flex-direction:column;">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 18px 12px;border-bottom:1px solid var(--off-border);">
+        <div style="min-width:0;">
+          <div style="font-size:9px;color:var(--off-text3);letter-spacing:2px;text-transform:uppercase;font-family:'DM Mono',monospace;margin-bottom:4px;">剧情总结</div>
+          <div id="offlineSummaryModalTitle" style="font-size:13px;color:var(--off-text);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">剧情总结</div>
+        </div>
+        <button onclick="_closeOfflineSummaryModal()" style="background:none;border:1px solid var(--off-border2);border-radius:999px;color:var(--off-text2);padding:7px 12px;font-size:10px;cursor:pointer;font-family:'DM Mono',monospace;">关闭</button>
+      </div>
+      <div id="offlineSummaryModalBody" style="padding:0 18px 18px;overflow-y:auto;"></div>
     </div>
   </div>
   <!-- Edit message modal -->
@@ -65366,6 +65863,38 @@ window.addEventListener('load', function() {
     }
   }
 
+  async function olDeleteFriend(friendId) {
+    const state = olState();
+    const friend = state.friends.find(function(f){ return String(f.id) === String(friendId); });
+    if (!friend) return;
+    if (!confirm('确定要删除这位好友吗？系统会解除好友关系，并清理双方私聊房间。')) return;
+    const me = String(state.profile.id);
+    const other = String(friendId);
+    const pair = [me, other].sort();
+    const linkId = pair.join('__');
+    const dmId = 'dm__' + pair[0] + '__' + pair[1];
+    state.friends = state.friends.filter(function(f){ return String(f.id) !== other; });
+    state.friendRequestsInbox = (state.friendRequestsInbox || []).filter(function(r){ return String(r.fromUserId) !== other && String(r.toUserId) !== other; });
+    state.friendRequestsOutbox = (state.friendRequestsOutbox || []).filter(function(r){ return String(r.fromUserId) !== other && String(r.toUserId) !== other; });
+    state.rooms = (state.rooms || []).filter(function(room){ return String(room.id) !== dmId; });
+    delete state.messages[dmId];
+    if (String(state.currentRoomId || '') === String(dmId)) {
+      state.currentRoomId = null;
+      try { olCloseRoom(); } catch(e) {}
+    }
+    olSave(state);
+    const sb = olClient(state);
+    if (sb) {
+      await sb.from('mh_online_messages').delete().eq('room_id', dmId);
+      await sb.from('mh_online_rooms').delete().eq('id', dmId);
+      await sb.from('mh_online_friend_links').delete().eq('id', linkId);
+      await sb.from('mh_online_friend_requests').delete().eq('from_user_id', me).eq('to_user_id', other);
+      await sb.from('mh_online_friend_requests').delete().eq('from_user_id', other).eq('to_user_id', me);
+    }
+    renderOnlineApp();
+    alert('好友已删除。');
+  }
+
   async function olPublishPersona(personaId) {
     const personas = olGetPersonasSafe();
     const persona = personas.find(function(p){ return String(p.id) === String(personaId); });
@@ -65405,6 +65934,26 @@ window.addEventListener('load', function() {
     }
     renderOnlineApp();
     alert('角色卡已发布。');
+  }
+
+  async function olUnpublishPersona(cardId) {
+    const state = olState();
+    const card = state.sharedCards.find(function(c){ return String(c.id) === String(cardId); });
+    if (!card) return;
+    if (String(card.ownerId) !== String(state.profile.id)) return alert('只能撤回自己发布的角色卡。');
+    if (!confirm('确定要撤回这张角色卡吗？撤回后好友将不会再看到它。')) return;
+    state.sharedCards = state.sharedCards.filter(function(c){ return String(c.id) !== String(card.id); });
+    olSave(state);
+    const sb = olClient(state);
+    if (sb) {
+      const res = await sb.from('mh_online_persona_cards').delete().eq('id', card.id);
+      if (res.error) {
+        await olSyncRemote(false);
+        return alert('云端撤回失败：' + res.error.message);
+      }
+    }
+    renderOnlineApp();
+    alert('角色卡已撤回发布。');
   }
 
   function olImportCard(cardId) {
@@ -65491,6 +66040,57 @@ window.addEventListener('load', function() {
     }
     renderOnlineApp();
     olOpenRoom(room.id);
+  }
+
+  async function olDeleteRoom(roomId) {
+    const state = olState();
+    const room = state.rooms.find(function(r){ return String(r.id) === String(roomId); });
+    if (!room) return;
+    if (!confirm('确定要永久删除这个聊天室吗？聊天室本身和全部消息都会被删除。')) return;
+    state.rooms = state.rooms.filter(function(r){ return String(r.id) !== String(roomId); });
+    delete state.messages[roomId];
+    if (String(state.currentRoomId || '') === String(roomId)) {
+      state.currentRoomId = null;
+      try { olCloseRoom(); } catch(e) {}
+    }
+    olSave(state);
+    const sb = olClient(state);
+    if (sb) {
+      const msgRes = await sb.from('mh_online_messages').delete().eq('room_id', roomId);
+      if (msgRes.error) {
+        await olSyncRemote(false);
+        return alert('删除聊天室消息失败：' + msgRes.error.message);
+      }
+      const roomRes = await sb.from('mh_online_rooms').delete().eq('id', roomId);
+      if (roomRes.error) {
+        await olSyncRemote(false);
+        return alert('删除聊天室失败：' + roomRes.error.message);
+      }
+    }
+    renderOnlineApp();
+    alert('聊天室已永久删除。');
+  }
+
+  async function olClearRoomMessages(roomId) {
+    const state = olState();
+    const room = state.rooms.find(function(r){ return String(r.id) === String(roomId); });
+    if (!room) return;
+    if (!confirm('确定要永久删除这个聊天室里的全部聊天记录吗？聊天室会保留。')) return;
+    state.messages[roomId] = [];
+    olSave(state);
+    const sb = olClient(state);
+    if (sb) {
+      const res = await sb.from('mh_online_messages').delete().eq('room_id', roomId);
+      if (res.error) {
+        await olSyncRemote(false);
+        return alert('清空聊天室消息失败：' + res.error.message);
+      }
+    }
+    if (String(state.currentRoomId || '') === String(roomId) && document.getElementById('olRoomShell').style.display === 'flex') {
+      olRenderRoom();
+    }
+    renderOnlineApp();
+    alert('聊天室聊天记录已清空。');
   }
 
   async function olLoadRoomMessages(roomId) {
@@ -65638,6 +66238,26 @@ window.addEventListener('load', function() {
     }
     renderOnlineApp();
     alert('已发布到红线广场。');
+  }
+
+  async function olUnpublishRedline(postId) {
+    const state = olState();
+    const post = state.redlinePosts.find(function(p){ return String(p.id) === String(postId); });
+    if (!post) return;
+    if (String(post.ownerId) !== String(state.profile.id)) return alert('只能撤回自己发布的红线卡。');
+    if (!confirm('确定要撤回这张红线卡吗？撤回后好友将不会再在红线广场看到它。')) return;
+    state.redlinePosts = state.redlinePosts.filter(function(p){ return String(p.id) !== String(post.id); });
+    olSave(state);
+    const sb = olClient(state);
+    if (sb) {
+      const res = await sb.from('mh_online_redline_posts').delete().eq('id', post.id);
+      if (res.error) {
+        await olSyncRemote(false);
+        return alert('云端撤回失败：' + res.error.message);
+      }
+    }
+    renderOnlineApp();
+    alert('红线卡已撤回发布。');
   }
 
   function olFindMineRedlineCandidates(state) {
@@ -65907,7 +66527,7 @@ window.addEventListener('load', function() {
     }).join('') || '<div class="online-empty">你还没有发出中的申请。</div>';
 
     const items = state.friends.length ? state.friends.map(function(f) {
-      return '<div class="online-list-item"><div class="online-item-top"><div class="online-flex-row"><div class="online-avatar">' + (f.avatar ? '<img src="' + olEsc(f.avatar) + '">' : '<i class="fas fa-user"></i>') + '</div><div><div class="online-item-name">' + olEsc(f.name) + '</div><div class="online-item-sub">' + (f.online ? '在线中' : '最近在线 ' + olShortTime(f.updatedAt || 0)) + '</div></div></div><span class="online-status-pill ' + (f.online ? 'ok' : '') + '">' + (f.online ? 'online' : 'idle') + '</span></div><div class="online-badges"><span class="online-badge">邀请码 ' + olEsc(f.inviteCode || '------') + '</span></div><div class="online-item-actions"><button class="online-mini-btn" onclick="olCreateRoom()">拉进聊天室</button><button class="online-mini-btn" onclick="olSwitchTab(\'personas\')">拉角色卡</button></div></div>';
+      return '<div class="online-list-item"><div class="online-item-top"><div class="online-flex-row"><div class="online-avatar">' + (f.avatar ? '<img src="' + olEsc(f.avatar) + '">' : '<i class="fas fa-user"></i>') + '</div><div><div class="online-item-name">' + olEsc(f.name) + '</div><div class="online-item-sub">' + (f.online ? '在线中' : '最近在线 ' + olShortTime(f.updatedAt || 0)) + '</div></div></div><span class="online-status-pill ' + (f.online ? 'ok' : '') + '">' + (f.online ? 'online' : 'idle') + '</span></div><div class="online-badges"><span class="online-badge">邀请码 ' + olEsc(f.inviteCode || '------') + '</span></div><div class="online-item-actions"><button class="online-mini-btn" onclick="olCreateRoom()">拉进聊天室</button><button class="online-mini-btn" onclick="olSwitchTab(\'personas\')">看角色卡</button><button class="online-mini-btn" onclick="olDeleteFriend(\'' + olEsc(f.id) + '\')">删除好友</button></div></div>';
     }).join('') : '<div class="online-empty">还没有好友。先输入邀请码发申请。</div>';
 
     document.getElementById('olPanelFriends').innerHTML =
@@ -65919,8 +66539,9 @@ window.addEventListener('load', function() {
 
   function olRenderPersonas(state) {
     const myCards = olGetPersonasSafe().map(function(p) {
-      const shared = state.sharedCards.some(function(c){ return String(c.ownerId) === String(state.profile.id) && String(c.personaId) === String(p.id); });
-      return '<div class="online-list-item"><div class="online-item-top"><div class="online-flex-row"><div class="online-avatar">' + (p.avatar ? '<img src="' + olEsc(p.avatar) + '">' : '<i class="fas fa-user-astronaut"></i>') + '</div><div><div class="online-item-name">' + olEsc(p.name || '未命名角色') + '</div><div class="online-item-sub">' + olEsc((p.persona || p.appearance || '暂无设定').slice(0, 80)) + '</div></div></div><span class="online-status-pill ' + (shared ? 'ok' : '') + '">' + (shared ? '已分享' : '未分享') + '</span></div><div class="online-item-actions"><button class="online-mini-btn" onclick="olPublishPersona(\'' + olEsc(p.id) + '\')">发布到云端</button></div></div>';
+      const sharedCard = state.sharedCards.find(function(c){ return String(c.ownerId) === String(state.profile.id) && String(c.personaId) === String(p.id); });
+      const shared = !!sharedCard;
+      return '<div class="online-list-item"><div class="online-item-top"><div class="online-flex-row"><div class="online-avatar">' + (p.avatar ? '<img src="' + olEsc(p.avatar) + '">' : '<i class="fas fa-user-astronaut"></i>') + '</div><div><div class="online-item-name">' + olEsc(p.name || '未命名角色') + '</div><div class="online-item-sub">' + olEsc((p.persona || p.appearance || '暂无设定').slice(0, 80)) + '</div></div></div><span class="online-status-pill ' + (shared ? 'ok' : '') + '">' + (shared ? '已分享' : '未分享') + '</span></div><div class="online-item-actions"><button class="online-mini-btn" onclick="olPublishPersona(\'' + olEsc(p.id) + '\')">' + (shared ? '重新发布' : '发布到云端') + '</button>' + (sharedCard ? '<button class="online-mini-btn" onclick="olUnpublishPersona(\'' + olEsc(sharedCard.id) + '\')">撤回发布</button>' : '') + '</div></div>';
     }).join('') || '<div class="online-empty">本地还没有角色，先去角色系统创建角色吧。</div>';
 
     const friendCards = state.sharedCards.filter(function(c){ return String(c.ownerId) !== String(state.profile.id); }).map(function(c) {
@@ -65936,7 +66557,7 @@ window.addEventListener('load', function() {
     const items = state.rooms.map(function(r) {
       const msgs = state.messages[r.id] || [];
       const last = msgs[msgs.length - 1];
-      return '<div class="online-list-item"><div class="online-item-top"><div><div class="online-item-name">' + olEsc(r.title) + '</div><div class="online-item-sub">' + r.members.length + ' 人 · ' + (last ? olEsc((last.speakerName || last.senderName) + '：' + last.content.slice(0, 22)) : '还没有消息') + '</div></div><span class="online-status-pill">room</span></div><div class="online-item-actions"><button class="online-mini-btn" onclick="olOpenRoom(\'' + olEsc(r.id) + '\')">进入聊天室</button><button class="online-mini-btn" onclick="olRefreshCurrentRoom()">刷新消息</button></div></div>';
+      return '<div class="online-list-item"><div class="online-item-top"><div><div class="online-item-name">' + olEsc(r.title) + '</div><div class="online-item-sub">' + r.members.length + ' 人 · ' + (last ? olEsc((last.speakerName || last.senderName) + '：' + last.content.slice(0, 22)) : '还没有消息') + '</div></div><span class="online-status-pill">room</span></div><div class="online-item-actions"><button class="online-mini-btn" onclick="olOpenRoom(\'' + olEsc(r.id) + '\')">进入聊天室</button><button class="online-mini-btn" onclick="olClearRoomMessages(\'' + olEsc(r.id) + '\')">清空聊天</button><button class="online-mini-btn" onclick="olDeleteRoom(\'' + olEsc(r.id) + '\')">删除聊天室</button></div></div>';
     }).join('') || '<div class="online-empty">还没有聊天室。添加好友后可自动有私聊房间。</div>';
 
     document.getElementById('olPanelRooms').innerHTML =
@@ -65960,7 +66581,8 @@ window.addEventListener('load', function() {
     const mine = olGetAdultChildren().map(function(c) {
       const full = olGetLocalChildProfile(c.id) || c;
       const disabled = olCanStartRedline(full.loveStatus) ? '' : ' style="opacity:0.55;cursor:not-allowed;" disabled';
-      return '<div class="online-list-item"><div class="online-item-top"><div class="online-flex-row"><div class="online-avatar">' + (full.avatar ? '<img src="' + olEsc(full.avatar) + '">' : '<i class="fas fa-heart"></i>') + '</div><div><div class="online-item-name">' + olEsc(full.name) + '</div><div class="online-item-sub">' + full.age + ' 岁 · ' + olEsc(olDescribeGender(full.gender)) + ' · ' + olEsc(full.familyLabel || (full.personaName + ' 的孩子')) + '</div></div></div><span class="online-status-pill">' + olEsc(olStatusLabel(full.loveStatus || 'single')) + '</span></div><div class="online-badges"><span class="online-badge">已生孩子 ' + full.childCount + ' 位</span><span class="online-badge">' + olEsc((full.bio || '暂无简介').slice(0, 90)) + '</span></div><div class="online-item-actions"><button class="online-mini-btn" onclick="olShowLocalChildProfile(\'' + olEsc(full.id) + '\')">查看资料</button><button class="online-mini-btn" onclick="olPublishRedline(\'' + olEsc(full.id) + '\')"'+ disabled + '>发布到广场</button></div></div>';
+      const myPost = (state.redlinePosts || []).find(function(p){ return String(p.ownerId) === String(state.profile.id) && String(p.childId) === String(full.id); });
+      return '<div class="online-list-item"><div class="online-item-top"><div class="online-flex-row"><div class="online-avatar">' + (full.avatar ? '<img src="' + olEsc(full.avatar) + '">' : '<i class="fas fa-heart"></i>') + '</div><div><div class="online-item-name">' + olEsc(full.name) + '</div><div class="online-item-sub">' + full.age + ' 岁 · ' + olEsc(olDescribeGender(full.gender)) + ' · ' + olEsc(full.familyLabel || (full.personaName + ' 的孩子')) + '</div></div></div><span class="online-status-pill">' + (myPost ? '已发布' : olEsc(olStatusLabel(full.loveStatus || 'single'))) + '</span></div><div class="online-badges"><span class="online-badge">已生孩子 ' + full.childCount + ' 位</span><span class="online-badge">' + olEsc((full.bio || '暂无简介').slice(0, 90)) + '</span></div><div class="online-item-actions"><button class="online-mini-btn" onclick="olShowLocalChildProfile(\'' + olEsc(full.id) + '\')">查看资料</button><button class="online-mini-btn" onclick="olPublishRedline(\'' + olEsc(full.id) + '\')"'+ disabled + '>' + (myPost ? '重新发布' : '发布到广场') + '</button>' + (myPost ? '<button class="online-mini-btn" onclick="olUnpublishRedline(\'' + olEsc(myPost.id) + '\')">撤回发布</button>' : '') + '</div></div>';
     }).join('') || '<div class="online-empty">宝宝系统里还没有满 18 岁的孩子。</div>';
 
     const plaza = state.redlinePosts.filter(function(p){ return String(p.ownerId) !== myUid; }).map(function(p) {
@@ -66260,12 +66882,22 @@ window.addEventListener('load', function() {
       const el = document.getElementById('olPanel' + k.charAt(0).toUpperCase() + k.slice(1));
       if (el) el.classList.toggle('active', state.activeTab === k);
     });
-    olRenderHome(state);
-    olRenderFriends(state);
-    olRenderPersonas(state);
-    olRenderRooms(state);
-    olRenderRedline(state);
-    olRenderSettings(state);
+
+    /* 只渲染当前激活的 tab，避免全量重建 DOM 导致页面乱跳 */
+    const tab = state.activeTab;
+    if (tab === 'home') olRenderHome(state);
+    else if (tab === 'friends') olRenderFriends(state);
+    else if (tab === 'personas') olRenderPersonas(state);
+    else if (tab === 'rooms') olRenderRooms(state);
+    else if (tab === 'redline') olRenderRedline(state);
+    else if (tab === 'settings') {
+      /* 如果用户正在设置页输入框中输入，跳过重渲染，避免内容被覆盖 */
+      const focused = document.activeElement;
+      const settingsInputIds = ['olDisplayName', 'olSbUrl', 'olSbKey'];
+      const userTypingInSettings = focused && settingsInputIds.indexOf(focused.id) !== -1;
+      if (!userTypingInSettings) olRenderSettings(state);
+    }
+
     olRenderQuickActions();
     if (state.currentRoomId && document.getElementById('olRoomShell').style.display === 'flex') olRenderRoom();
   };
@@ -66275,14 +66907,19 @@ window.addEventListener('load', function() {
   window.olCloseSheet = olCloseSheet;
   window.olAddFriendByCode = olAddFriendByCode;
   window.olHandleFriendRequest = olHandleFriendRequest;
+  window.olDeleteFriend = olDeleteFriend;
   window.olPublishPersona = olPublishPersona;
+  window.olUnpublishPersona = olUnpublishPersona;
   window.olImportCard = olImportCard;
   window.olCreateRoom = olCreateRoom;
   window.olOpenRoom = olOpenRoom;
   window.olCloseRoom = olCloseRoom;
   window.olRefreshCurrentRoom = olRefreshCurrentRoom;
+  window.olDeleteRoom = olDeleteRoom;
+  window.olClearRoomMessages = olClearRoomMessages;
   window.olSendMessage = olSendMessage;
   window.olPublishRedline = olPublishRedline;
+  window.olUnpublishRedline = olUnpublishRedline;
   window.olSendRedlineAction = olSendRedlineAction;
   window.olRespondRedlineAction = olRespondRedlineAction;
   window.olSyncRemote = olSyncRemote;
@@ -66310,6 +66947,8 @@ window.addEventListener('load', function() {
     state.profile.displayName = document.getElementById('olDisplayName').value.trim() || olGetUserName();
     olSave(state);
     window.__olSb = null;
+    /* 主动失焦，让 renderOnlineApp 中的 userTypingInSettings 判断为 false，确保设置页更新 */
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
     renderOnlineApp();
     olStartAutoSync();
     alert('联机设置已保存。');
@@ -66332,7 +66971,19 @@ window.addEventListener('load', function() {
 
   document.addEventListener('DOMContentLoaded', function() {
     const state = olSave(olState());
-    renderOnlineApp();
+    /* 初始化时全量渲染一次所有面板，之后 renderOnlineApp 只刷当前 tab */
+    olRenderHome(state);
+    olRenderFriends(state);
+    olRenderPersonas(state);
+    olRenderRooms(state);
+    olRenderRedline(state);
+    olRenderSettings(state);
+    olRenderQuickActions();
+    olRenderBars(state);
+    ['home','friends','personas','rooms','redline','settings'].forEach(function(k) {
+      const el = document.getElementById('olPanel' + k.charAt(0).toUpperCase() + k.slice(1));
+      if (el) el.classList.toggle('active', state.activeTab === k);
+    });
     olStartAutoSync();
     if (state.backend.mode === 'supabase' && state.backend.autoSync) {
       setTimeout(function(){ olSyncRemote(false); }, 900);
