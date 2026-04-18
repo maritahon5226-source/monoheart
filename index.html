@@ -13257,7 +13257,7 @@ body:not(.ios-fullscreen) .family-widget {
           </div>
           <!-- 4 App Icons Grid -->
           <div class="home-apps-grid">
-            <div class="home-app-icon" id="app-chat" data-drag-id="app-chat" onclick="openApp('chatPage')">
+            <div class="home-app-icon" id="app-chat" data-drag-id="app-chat" onclick="openHomeApp(event, 'chatPage')">
               <div class="home-app-icon-box"><i class="fas fa-comment-dots"></i></div>
               <div class="home-app-icon-label">聊天</div>
             </div>
@@ -14197,6 +14197,10 @@ body:not(.ios-fullscreen) .family-widget {
         <div class="compose-modal-title">发布帖子</div>
         <input type="text" class="compose-modal-input" id="forumTitleInput" placeholder="标题">
         <textarea class="compose-modal-textarea" id="forumContentInput" placeholder="内容..."></textarea>
+        <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:12px;color:#555;cursor:pointer;">
+          <input type="checkbox" id="forumAnonymousToggle" style="width:14px;height:14px;">
+          <span>匿名发布</span>
+        </label>
         <div class="compose-modal-btns">
           <button class="compose-modal-cancel" onclick="closeComposeModal('forum')">取消</button>
           <button class="compose-modal-submit" onclick="postForum()">发布</button>
@@ -14207,11 +14211,15 @@ body:not(.ios-fullscreen) .family-widget {
   <!-- 角色匿名发帖选择弹窗 -->
   <div class="persona-forum-modal-overlay" id="personaForumModalOverlay" onclick="closePersonaForumModal(event)">
     <div class="persona-forum-modal-box" onclick="event.stopPropagation()">
-      <div class="persona-forum-modal-title"><i class="fas fa-user-secret"></i>选择角色匿名发帖</div>
+      <div class="persona-forum-modal-title"><i class="fas fa-user-secret"></i>选择角色发帖</div>
       <div class="persona-forum-modal-note">
-        角色将以<b>匿名身份</b>在当前板块发布帖子，内容基于ta的人设、私聊记录、群聊记忆等。<br>
-        只有你知道发帖人是谁 <i class="fas fa-eye" style="color:#555;"></i>
+        可选择让角色以<b>匿名</b>或<b>不匿名</b>身份在当前板块发布帖子，内容基于 ta 的人设、私聊记录、群聊记忆等。<br>
+        匿名时角色会隐藏真实身份；不匿名时会直接以角色身份发帖。
       </div>
+      <label style="display:flex;align-items:center;gap:8px;margin:0 0 12px;font-size:12px;color:#555;cursor:pointer;">
+        <input type="checkbox" id="personaForumAnonymousToggle" checked style="width:14px;height:14px;">
+        <span>匿名发布</span>
+      </label>
       <div class="persona-forum-persona-list" id="personaForumPersonaList"></div>
       <div class="persona-forum-cancel" onclick="closePersonaForumModal()">取消</div>
     </div>
@@ -16074,7 +16082,7 @@ body:not(.ios-fullscreen) .family-widget {
   </div>
   <!-- 底部导览 -->
   <div class="phone-nav">
-    <div class="nav-item active" id="nav-chat" onclick="switchPage('chatPage', this)">
+    <div class="nav-item active" id="nav-chat" onclick="switchPage('chatPage', this, event)">
       <i class="fas fa-comment nav-icon"></i>
       <span class="nav-text">聊天</span>
     </div>
@@ -16793,10 +16801,10 @@ body:not(.ios-fullscreen) .family-widget {
       <label class="form-label">新增板块</label>
       <input type="text" id="newSectionName" class="form-input" placeholder="板块名称">
       <textarea id="newSectionDesc" class="form-textarea" placeholder="板块描述（用于AI生成相关内容）"></textarea>
-      <button class="action-btn" onclick="addForumSection()">添加板块</button>
+      <button type="button" class="action-btn" onclick="addForumSection(event)">添加板块</button>
     </div>
     <div id="sectionList" class="mt-4"></div>
-    <button class="action-btn w-full mt-4" onclick="closeSectionModal()">关闭</button>
+    <button type="button" class="action-btn w-full mt-4" onclick="closeSectionModal()">关闭</button>
   </div>
 </div>
 <!-- Avatar Edit Popup -->
@@ -17364,7 +17372,7 @@ function saveForumState(nextCurrentSectionId) {
   const payload = { sections: forumSections, data: forumData, currentSectionId: currentSectionId };
   localStorage.setItem(FORUM_STATE_KEY, JSON.stringify(payload));
   localStorage.setItem('mono_forum_sections', JSON.stringify(forumSections));
-    saveForumState();
+  localStorage.setItem('mono_forum', JSON.stringify(forumData));
   localStorage.setItem('mono_forum_current_section', JSON.stringify(currentSectionId));
   return payload;
 }
@@ -18126,20 +18134,59 @@ function renderBrowser(items) {
   `).join('');
 }
 // ===================== 页面切换 =====================
-function switchPage(pageId, navEl) {
-  closeContextMenu();
-  if (isMultiSelectMode) cancelMultiSelect();
-  document.getElementById('homeScreen').style.display = 'none';
-  document.querySelectorAll('.page').forEach(p => { p.classList.remove('active'); p.style.display = 'none'; });
+function _showAppPage(pageId) {
   const target = document.getElementById(pageId);
+  if (!target) {
+    console.warn('showAppPage: 找不到页面元素 #' + pageId);
+    return false;
+  }
+  document.getElementById('homeScreen').style.display = 'none';
+  document.querySelectorAll('.page').forEach(function(p) {
+    p.classList.remove('active');
+    p.style.display = 'none';
+  });
   target.classList.add('active');
   target.style.display = 'flex';
-  if (pageId === 'profilePage') { try { renderWorldBookList(); } catch(e) {} }
   const menuBtn = document.getElementById('menuBtn');
-// REMOVED (addBtn): const addBtn = document.getElementById('addBtn');
-// REMOVED (addBtn): if (pageId === 'chatPage') { menuBtn.style.display = 'flex'; addBtn.style.display = 'flex'; }
-// REMOVED (addBtn): else { menuBtn.style.display = 'none'; addBtn.style.display = 'none'; }
-  document.getElementById('contactsDrawer').classList.remove('open');
+  if (menuBtn) menuBtn.style.display = pageId === 'chatPage' ? 'flex' : 'none';
+  const drawer = document.getElementById('contactsDrawer');
+  if (drawer) drawer.classList.remove('open');
+  if (pageId === 'profilePage') { try { renderWorldBookList(); } catch(e) {} }
+  if (pageId === 'shopPage') { try { initShopPage(); } catch(e) {} }
+  if (pageId === 'visitPage') { try { renderVisitCharList(); } catch(e) {} }
+  if (pageId === 'scriptPage') { try { initScriptPage(); } catch(e) {} }
+  if (pageId === 'notifCenterPage') { try { renderNotifCenter(); } catch(e) {} }
+  if (pageId === 'dreamPage') { try { renderDreamPage(); } catch(e) {} }
+  if (pageId === 'onlinePage' && typeof renderOnlineApp === 'function') {
+    try { renderOnlineApp(); } catch(e) {}
+  }
+  if (pageId === 'chatPage') {
+    if (!currentId && personas && personas.length > 0) {
+      try { selectPersona(personas[0].id); } catch(e) {}
+    }
+    setTimeout(function() {
+      var chatBox = document.getElementById('chatBox');
+      if (chatBox) chatBox.scrollTop = chatBox.scrollHeight;
+    }, 80);
+  }
+  return true;
+}
+function openHomeApp(evt, pageId) {
+  if (evt) {
+    if (typeof evt.preventDefault === 'function') evt.preventDefault();
+    if (typeof evt.stopPropagation === 'function') evt.stopPropagation();
+  }
+  if (typeof window._iphIsEditMode === 'function' && window._iphIsEditMode()) return false;
+  return _showAppPage(pageId);
+}
+function switchPage(pageId, navEl, evt) {
+  if (evt) {
+    if (typeof evt.preventDefault === 'function') evt.preventDefault();
+    if (typeof evt.stopPropagation === 'function') evt.stopPropagation();
+  }
+  closeContextMenu();
+  if (isMultiSelectMode) cancelMultiSelect();
+  _showAppPage(pageId);
 }
 document.addEventListener('DOMContentLoaded', () => { /* Home screen shown by default — initCustomFont is called inside afterDB instead */ });
 // ===================== 联络人抽屉 =====================
@@ -22645,17 +22692,31 @@ async function updateDiary() {
 function renderForumSections() {
   const sc = document.getElementById('forumSections');
   const sl = document.getElementById('sectionList');
+  if (!sc) return;
   sc.innerHTML = forumSections.map(s =>
     `<div class="forum-section-item ${s.id===currentSectionId?'active':''}" onclick="switchForumSection(${s.id})">${s.name}</div>`
   ).join('') + `<div class="forum-section-item add" onclick="openSectionModal()"><i class="fas fa-plus"></i> 添加</div>`;
-  sl.innerHTML = forumSections.map(s =>
-    `<div class="flex items-center justify-between p-2 border-b border-gray-200"><div><div class="font-bold">${s.name}</div><div class="text-xs text-gray-600">${s.desc}</div></div><button onclick="deleteForumSection(${s.id})" class="text-red-500 text-sm"><i class="fas fa-trash"></i></button></div>`
-  ).join('');
+  if (sl) {
+    sl.innerHTML = forumSections.map(s =>
+      `<div class="flex items-center justify-between p-2 border-b border-gray-200"><div><div class="font-bold">${s.name}</div><div class="text-xs text-gray-600">${s.desc}</div></div><button type="button" onclick="deleteForumSection(${s.id})" class="text-red-500 text-sm"><i class="fas fa-trash"></i></button></div>`
+    ).join('');
+  }
 }
-function switchForumSection(id) { currentSectionId = id; saveForumState(id); renderForumSections(); renderForum(); }
+function switchForumSection(id) {
+  const target = (forumSections || []).find(function(section) { return String(section.id) === String(id); });
+  if (!target) return;
+  currentSectionId = target.id;
+  saveForumState(target.id);
+  renderForumSections();
+  renderForum();
+}
 function openSectionModal() { document.getElementById('sectionModal').style.display = 'flex'; }
 function closeSectionModal() { document.getElementById('sectionModal').style.display = 'none'; document.getElementById('newSectionName').value = ''; document.getElementById('newSectionDesc').value = ''; }
-function addForumSection() {
+function addForumSection(evt) {
+  if (evt) {
+    evt.preventDefault();
+    evt.stopPropagation();
+  }
   const name = document.getElementById('newSectionName').value.trim();
   const desc = document.getElementById('newSectionDesc').value.trim();
   if (!name) { alert("请输入板块名称！"); return; }
@@ -22689,7 +22750,7 @@ function renderForum() {
     return;
   }
   fl.innerHTML = posts.map(post => {
-    const isUserPost = post.authorType === 'user' || post.author === userProfile.name || post.authorType === 'persona_anon';
+    const isUserPost = post.authorType === 'user' || post.authorType === 'user_anon' || post.authorType === 'persona_anon' || post.authorType === 'persona' || post.author === userProfile.name;
     const deleteBtn = isUserPost
       ? `<button onclick="deleteForumPost(${post.id})" style="font-size:9px;padding:3px 9px;border:1px solid #f5c6c6;border-radius:10px;background:#fff0f0;color:#e74c3c;cursor:pointer;font-family:inherit;flex-shrink:0;"><i class="fas fa-trash"></i> 删除</button>`
       : '';
@@ -22761,6 +22822,8 @@ function renderForum() {
 function deleteForumPost(postId) {
   if (!confirm('确定要删除这个帖子吗？')) return;
   if (!forumData[currentSectionId]) return;
+  const targetPost = (forumData[currentSectionId] || []).find(function(p) { return p.id === postId; });
+  if (targetPost) _forumRemoveMemoriesForPost(targetPost);
   forumData[currentSectionId] = forumData[currentSectionId].filter(p => p.id !== postId);
   saveForumState();
   renderForum();
@@ -22768,14 +22831,28 @@ function deleteForumPost(postId) {
 function postForum() {
   const title = document.getElementById('forumTitleInput').value.trim();
   const content = document.getElementById('forumContentInput').value.trim();
+  const isAnonymous = !!(document.getElementById('forumAnonymousToggle') || {}).checked;
   if (!title || !content) { alert("请填写标题和内容！"); return; }
   if (!currentSectionId) { alert("请先选择一个论坛板块！"); return; }
   if (!forumData[currentSectionId]) forumData[currentSectionId] = [];
-  const newPost = { id: Date.now(), title, author: userProfile.name, avatar: userProfile.avatar, authorType: 'user', content, time: new Date().getTime(), comments: [] };
+  const newPost = {
+    id: Date.now(),
+    title,
+    author: isAnonymous ? '匿名' : userProfile.name,
+    realAuthor: userProfile.name,
+    avatar: isAnonymous ? '' : userProfile.avatar,
+    authorType: isAnonymous ? 'user_anon' : 'user',
+    content,
+    time: new Date().getTime(),
+    comments: [],
+    sectionId: currentSectionId
+  };
   forumData[currentSectionId].unshift(newPost);
   document.getElementById('forumTitleInput').value = '';
   document.getElementById('forumContentInput').value = '';
+  if (document.getElementById('forumAnonymousToggle')) document.getElementById('forumAnonymousToggle').checked = false;
   closeComposeModal('forum');
+  _forumSyncMemoriesForPost(newPost, currentSectionId);
   saveForumState();
   renderForum();
   if (apiConfig.url && apiConfig.key && apiConfig.model) generateForumComments(newPost.id, title, content);
@@ -22829,7 +22906,18 @@ function doForwardToPersona(personaId) {
 async function generateForumComments(postId, title, content) {
   try {
     const commentCount = Math.floor(Math.random() * 4) + 2;
-    const prompt = `${LANG_SYSTEM_PREFIX}请为以下论坛帖子生成${commentCount}条真实有活人感的简体中文评论：\n标题：${title}\n内容：${content}\n\n要求：多样化风格（认同、质疑、调侃、补充、提问），口语化，每条15-50字。\n严格返回JSON数组，不加说明：\n[{"author":"网友名","content":"评论内容"}]\n只返回JSON。`;
+    const posts = forumData[currentSectionId] || [];
+    const post = posts.find(function(item) { return item.id === postId; });
+    const authorHint = post && post.authorType === 'user'
+      ? `发帖人是用户「${userProfile.name}」，评论者知道这是用户本人发的。`
+      : post && post.authorType === 'user_anon'
+        ? '发帖人是匿名用户，评论者不知道真实身份。'
+        : post && post.authorType === 'persona'
+          ? `发帖人是角色「${post.realAuthor || post.author}」，评论者知道这是该角色本人发的。`
+          : post && post.authorType === 'persona_anon'
+            ? '发帖人是匿名角色，评论者不知道真实身份。'
+            : '请按普通论坛帖子理解。';
+    const prompt = `${LANG_SYSTEM_PREFIX}请为以下论坛帖子生成${commentCount}条真实有活人感的简体中文评论：\n标题：${title}\n内容：${content}\n补充设定：${authorHint}\n\n要求：多样化风格（认同、质疑、调侃、补充、提问），口语化，每条15-50字。\n严格返回JSON数组，不加说明：\n[{"author":"网友名","content":"评论内容"}]\n只返回JSON。`;
     const r = await fetch(`${apiConfig.url.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${apiConfig.key}`, 'Content-Type': 'application/json' },
@@ -22839,13 +22927,14 @@ async function generateForumComments(postId, title, content) {
     const data = await r.json();
     const comments = safeParseJSON(data.choices[0].message.content.trim());
     if (!Array.isArray(comments)) return;
-    const posts = forumData[currentSectionId] || [];
-    const post = posts.find(p => p.id === postId);
-    if (!post) return;
+    const posts2 = forumData[currentSectionId] || [];
+    const post2 = posts2.find(p => p.id === postId);
+    if (!post2) return;
     comments.forEach((c, i) => {
       const ru = mockUsers[Math.floor(Math.random() * mockUsers.length)];
-      post.comments.push({ id: Date.now() + i, author: c.author || ru.name, avatar: ru.avatar, content: c.content, time: new Date().getTime() - Math.floor(Math.random() * 3600000), replies: [] });
+      post2.comments.push({ id: Date.now() + i, author: c.author || ru.name, avatar: ru.avatar, content: c.content, time: new Date().getTime() - Math.floor(Math.random() * 3600000), replies: [] });
     });
+    _forumSyncMemoriesForPost(post2, currentSectionId);
     saveForumState();
     renderForum();
   } catch(e) {}
@@ -22905,14 +22994,16 @@ function submitForumComment() {
       replies: []
     };
     targetPost.comments.push(newComment);
+    _forumSyncMemoriesForPost(targetPost, sectionId);
     saveForumState();
     renderForum();
     // Trigger AI reply to user's comment on this post
     if (apiConfig.url && apiConfig.key && apiConfig.model) {
       const commentIdx = targetPost.comments.length - 1;
-      // If this is a persona anon post, the persona also replies to the user's comment
       if (targetPost.authorType === 'persona_anon' && targetPost.personaId) {
         setTimeout(() => _generatePersonaAnonForumReplyToUserComment(sectionId, pid, commentIdx, targetPost, text), 1800 + Math.random() * 2000);
+      } else if (targetPost.authorType === 'persona' && targetPost.personaId) {
+        setTimeout(() => _generatePersonaForumReplyToUserCommentPublic(sectionId, pid, commentIdx, targetPost, text), 1400 + Math.random() * 1600);
       } else {
         setTimeout(() => _generateForumCommentReply(sectionId, pid, commentIdx, targetPost.title, targetPost.content, text), 1200 + Math.random() * 2000);
       }
@@ -22933,16 +23024,19 @@ function submitForumComment() {
       authorType: 'user'
     };
     comment.replies.push(newReply);
+    _forumSyncMemoriesForPost(targetPost, sectionId);
     saveForumState();
     renderForum();
     // Trigger AI reply to the user's reply
     if (apiConfig.url && apiConfig.key && apiConfig.model) {
       const replyIdx = comment.replies.length - 1;
-      // If the user is replying to the persona's anon comment in a persona anon post, persona replies specially
       const isPersonaAnonPost = targetPost.authorType === 'persona_anon' && targetPost.personaId;
+      const isPersonaPublicPost = targetPost.authorType === 'persona' && targetPost.personaId;
       const isReplyingToPersona = isPersonaAnonPost && (target.replyToAuthor === targetPost.realAuthor || (comment.isPersonaComment));
       if (isPersonaAnonPost && isReplyingToPersona) {
         setTimeout(() => _generatePersonaAnonForumReplyToUserReply(sectionId, pid, commentIdx, replyIdx, targetPost, comment.content, target.replyToAuthor, text), 1800 + Math.random() * 2000);
+      } else if (isPersonaPublicPost && (target.replyToAuthor === targetPost.realAuthor || comment.isPersonaComment)) {
+        setTimeout(() => _generatePersonaForumReplyToUserReplyPublic(sectionId, pid, commentIdx, replyIdx, targetPost, comment.content, target.replyToAuthor, text), 1400 + Math.random() * 1600);
       } else {
         setTimeout(() => _generateForumReplyToReply(sectionId, pid, commentIdx, replyIdx, targetPost.title, targetPost.content, comment.content, target.replyToAuthor, target.replyToAvatar || '', text), 1200 + Math.random() * 2000);
       }
@@ -23000,9 +23094,19 @@ async function _generateForumCommentReply(sectionId, postId, commentIdx, postTit
         threadContext += `  【${c.author}】：${c.content}\n`;
       });
     }
+    const postIdentityHint = targetPost.authorType === 'user'
+      ? `这帖是用户「${userProfile.name}」本人公开发布的，你知道发帖者就是用户。`
+      : targetPost.authorType === 'user_anon'
+        ? '这帖是匿名发布的，你不知道发帖者真实身份。'
+        : targetPost.authorType === 'persona'
+          ? `这帖是角色「${targetPost.realAuthor || targetPost.author}」实名发布的，论坛网友知道发帖者身份。`
+          : targetPost.authorType === 'persona_anon'
+            ? '这帖是匿名角色发布的，论坛网友不知道发帖者真实身份。'
+            : '按普通论坛贴回复。';
     const prompt = `${LANG_SYSTEM_PREFIX}你就是论坛网友「${commentAuthor}」，你之前在帖子下发表了评论，现在「${userProfile.name}」回复了你，你要以「${commentAuthor}」的身份自然地回应对方。
 帖子标题：${postTitle}
 帖子内容：${postContent}
+帖子身份设定：${postIdentityHint}
 ${threadContext}
 你（${commentAuthor}）之前说：${commentContent}
 「${userProfile.name}」回复你说：${userCommentText}
@@ -23030,6 +23134,7 @@ ${threadContext}
       replyTo: userProfile.name,
       time: Date.now()
     });
+    _forumSyncMemoriesForPost(targetPost2, sectionId);
     saveForumState();
     renderForum();
   } catch(e) {
@@ -23071,8 +23176,18 @@ async function _generateForumReplyToReply(sectionId, postId, commentIdx, replyId
         replyChainContext += `  【${r.author}】回复【${r.replyTo || comment.author}】：${r.content}\n`;
       });
     }
+    const postIdentityHint = targetPost.authorType === 'user'
+      ? `这帖是用户「${userProfile.name}」本人公开发布的，你知道发帖者就是用户。`
+      : targetPost.authorType === 'user_anon'
+        ? '这帖是匿名发布的，你不知道发帖者真实身份。'
+        : targetPost.authorType === 'persona'
+          ? `这帖是角色「${targetPost.realAuthor || targetPost.author}」实名发布的，论坛网友知道发帖者身份。`
+          : targetPost.authorType === 'persona_anon'
+            ? '这帖是匿名角色发布的，论坛网友不知道发帖者真实身份。'
+            : '按普通论坛楼中楼互动理解。';
     const prompt = `${LANG_SYSTEM_PREFIX}你就是论坛网友「${respondentName}」，「${userProfile.name}」刚刚回复了你，你要以「${respondentName}」的身份自然地接着这段对话回应对方。
 帖子：${postTitle} — ${postContent.slice(0, 100)}
+帖子身份设定：${postIdentityHint}
 ${replyChainContext}
 「${userProfile.name}」回复你（${respondentName}）说：${userReplyText}
 要求：
@@ -23097,6 +23212,7 @@ ${replyChainContext}
       replyTo: userProfile.name,
       time: Date.now()
     });
+    _forumSyncMemoriesForPost(targetPost2, sectionId);
     saveForumState();
     renderForum();
   } catch(e) {
@@ -23190,6 +23306,7 @@ async function generatePersonaForumPost(personaId) {
   if (!currentSectionId) { alert('请先选择论坛板块！'); return; }
   const cs = forumSections.find(s => s.id === currentSectionId);
   if (!cs) return;
+  const isAnonymous = !!(document.getElementById('personaForumAnonymousToggle') || {}).checked;
   // ── 收集角色背景素材 ──
   // 只保留角色自己说的话作为「近期经历」灵感，避免把用户的视角混入帖子内容
   const recentChat = (persona.history || []).filter(m => m.role === 'assistant').slice(-15)
@@ -23225,22 +23342,22 @@ async function generatePersonaForumPost(personaId) {
   const loadingDiv = document.createElement('div');
   loadingDiv.id = 'personaForumPostLoading';
   loadingDiv.style.cssText = 'text-align:center;padding:24px 16px;color:#888;font-size:13px;border-bottom:1px solid #eee;';
-  loadingDiv.innerHTML = `<i class="fas fa-spinner fa-spin" style="margin-right:6px;"></i>${persona.name} 正在匿名发帖并生成楼层互动…`;
+  loadingDiv.innerHTML = `<i class="fas fa-spinner fa-spin" style="margin-right:6px;"></i>${persona.name} 正在${isAnonymous ? '匿名' : '实名'}发帖并生成楼层互动…`;
   fl.prepend(loadingDiv);
   try {
     // ── Step 1：一次性生成帖子 + 所有NPC评论 + 角色回复NPC ──
     const npcCount = 4 + Math.floor(Math.random() * 4); // 4~7条NPC评论
     const prompt = `${LANG_SYSTEM_PREFIX}你是${persona.name}，人设：${persona.persona}。
-你即将在论坛（板块：${cs.name}，说明：${cs.desc || cs.name}）以"匿名"身份发帖。
+你即将在论坛（板块：${cs.name}，说明：${cs.desc || cs.name}）以${isAnonymous ? '"匿名"' : '"实名"'}身份发帖。
 你的近期言行/心情素材（仅供灵感，按你的视角改写融入，不要直接引用原文）：
 ${contextBlock || '（暂无，请根据人设自由发挥）'}
 ⚠️ 重要提醒：上述背景资料中所有内容都是从你「${persona.name}」的视角出发的，帖子内容必须完全以你自己的第一人称视角来写，绝对不能以对话对象或其他人的视角来写。
-任务：生成完整的帖子发布场景，包含帖子本身、其他网友的评论、以及你以另一个匿名身份（"匿名_回帖者"）对部分评论的回复。
+任务：生成完整的帖子发布场景，包含帖子本身、其他网友的评论、以及你对部分评论的回复。
 要求：
 1. 帖子标题：吸引眼球，与板块主题相关，15字以内
-2. 帖子正文：100-200字，口语化，真实有感情，完全从你「${persona.name}」的内心视角和亲身经历出发，以匿名者角度叙述，不暴露真实身份，绝对不能从对话对象或任何其他人的视角写
+2. 帖子正文：100-200字，口语化，真实有感情，完全从你「${persona.name}」的内心视角和亲身经历出发，${isAnonymous ? '以匿名者角度叙述，不暴露真实身份' : '以你本人公开发帖的口吻叙述，让网友知道发帖者就是你'}，绝对不能从对话对象或任何其他人的视角写
 3. NPC评论：生成${npcCount}条不同网友的评论，昵称各异，风格多样（共鸣、追问、调侃、反驳、点赞），每条15-60字
-4. 角色回复NPC：你以"匿名_回帖者"的身份，对其中2~3条NPC评论做出回复（不能暴露是发帖人，就像另一个路人网友，但内容要符合你的人设性格和说话方式，口语化，20-60字）
+4. 角色回复NPC：你对其中2~3条NPC评论做出回复。${isAnonymous ? '回复时要以另一个匿名路人网友的身份互动，不能暴露你是发帖人，也不能显得认识发帖者。' : '回复时直接以你自己的身份互动，默认大家知道你就是发帖者。'} 内容要符合你的人设性格和说话方式，口语化，20-60字
 5. 所有内容用简体中文
 严格返回JSON（不加任何说明）：
 {
@@ -23266,15 +23383,15 @@ ${contextBlock || '（暂无，请根据人设自由发挥）'}
       // 找该评论有无角色回复
       const matchingReplies = personaReplies.filter(r => r.replyToNpcName === c.npcName);
       const replies = matchingReplies.map(r => {
-        const ru2 = mockUsers[Math.floor(Math.random() * mockUsers.length)];
         return {
           id: Date.now() + i * 100 + Math.random() * 99 | 0,
-          author: '匿名',
-          avatar: '',            // 匿名无头像
+          author: isAnonymous ? '匿名' : persona.name,
+          avatar: isAnonymous ? '' : (persona.avatar || ''),
           content: r.content,
           replyTo: c.npcName,
           time: Date.now() - Math.floor(Math.random() * 600000),
-          isPersonaComment: true  // 这是角色自己的匿名回复
+          isPersonaComment: true,
+          authorType: isAnonymous ? 'persona_anon' : 'persona'
         };
       });
       return {
@@ -23290,11 +23407,11 @@ ${contextBlock || '（暂无，请根据人设自由发挥）'}
     const newPost = {
       id: Date.now(),
       title: result.title,
-      author: '匿名',            // 固定显示"匿名"
+      author: isAnonymous ? '匿名' : persona.name,
       realAuthor: persona.name,  // 用户可见的真实角色名
       personaId: persona.id,
-      avatar: '',                // 匿名无头像
-      authorType: 'persona_anon',
+      avatar: isAnonymous ? '' : (persona.avatar || ''),
+      authorType: isAnonymous ? 'persona_anon' : 'persona',
       content: result.content,
       time: Date.now(),
       comments: builtComments,
@@ -23302,6 +23419,7 @@ ${contextBlock || '（暂无，请根据人设自由发挥）'}
     };
     if (!forumData[currentSectionId]) forumData[currentSectionId] = [];
     forumData[currentSectionId].unshift(newPost);
+    _forumSyncMemoriesForPost(newPost, currentSectionId);
     saveForumState();
     loadingDiv.remove();
     renderForum();
@@ -23353,6 +23471,7 @@ ${allComments || '（暂无）'}
       time: Date.now(),
       isPersonaComment: true
     });
+    _forumSyncMemoriesForPost(freshPost, sectionId);
     saveForumState();
     renderForum();
   } catch(e) {
@@ -23411,11 +23530,121 @@ ${replyChain || '（暂无）'}
       time: Date.now(),
       isPersonaComment: true
     });
+    _forumSyncMemoriesForPost(fp, sectionId);
     saveForumState();
     renderForum();
   } catch(e) {
     _hideForumCommentTyping(postId, commentIdx, 'reply');
     console.warn('persona anon reply-to-reply err:', e.message);
+    _showApiErrorToast('论坛回复失败', e);
+  }
+}
+// ── 用户在角色实名帖下留言 → 角色以实名身份正常回复用户 ──
+async function _generatePersonaForumReplyToUserCommentPublic(sectionId, postId, commentIdx, targetPost, userCommentText) {
+  try {
+    const persona = personas.find(p => p.id == targetPost.personaId);
+    if (!persona) {
+      return _generateForumCommentReply(sectionId, postId, commentIdx, targetPost.title, targetPost.content, userCommentText);
+    }
+    _showForumCommentTyping(postId, commentIdx, 'comment');
+    const allComments = (targetPost.comments || []).filter((_, i) => i !== commentIdx)
+      .slice(-6).map(c => `${c.author}：${c.content}`).join('\n');
+    const prompt = `${LANG_SYSTEM_PREFIX}你是${persona.name}，人设：${persona.persona}。
+你刚刚以自己的身份在论坛发了这个帖子，论坛里的人都知道发帖者就是你本人。
+标题：${targetPost.title}
+内容：${targetPost.content}
+其他网友的评论：
+${allComments || '（暂无）'}
+现在用户「${userProfile.name}」评论了你的帖子说："${userCommentText}"
+你要以${persona.name}本人的身份直接回复用户。
+要求：
+- 明确知道对方是用户「${userProfile.name}」，不用装作不认识
+- 回应自然、有角色感，像论坛里公开对话
+- 符合你的人设和说话习惯，30-80字
+返回JSON：{"content":"回复内容"}
+只返回JSON。`;
+    const raw = await _forumApiFetch(prompt, 280);
+    const result = safeParseJSON(raw);
+    _hideForumCommentTyping(postId, commentIdx, 'comment');
+    if (!result || !result.content) return;
+    const freshPost = (forumData[sectionId] || []).find(p => p.id === postId);
+    if (!freshPost || !freshPost.comments[commentIdx]) return;
+    if (!freshPost.comments[commentIdx].replies) freshPost.comments[commentIdx].replies = [];
+    freshPost.comments[commentIdx].replies.push({
+      id: Date.now(),
+      author: persona.name,
+      avatar: persona.avatar || '',
+      content: result.content,
+      replyTo: userProfile.name,
+      time: Date.now(),
+      isPersonaComment: true,
+      authorType: 'persona'
+    });
+    _forumSyncMemoriesForPost(freshPost, sectionId);
+    saveForumState();
+    renderForum();
+  } catch(e) {
+    _hideForumCommentTyping(postId, commentIdx, 'comment');
+    console.warn('persona public reply err:', e.message);
+    _showApiErrorToast('论坛回复失败', e);
+  }
+}
+// ── 用户在角色实名帖楼中楼互动 → 角色以实名身份继续回应 ──
+async function _generatePersonaForumReplyToUserReplyPublic(sectionId, postId, commentIdx, replyIdx, targetPost, originalCommentText, commentAuthor, userReplyText) {
+  try {
+    const persona = personas.find(p => p.id == targetPost.personaId);
+    if (!persona) {
+      return _generateForumReplyToReply(sectionId, postId, commentIdx, replyIdx, targetPost.title, targetPost.content, originalCommentText, commentAuthor, '', userReplyText);
+    }
+    _showForumCommentTyping(postId, commentIdx, 'reply');
+    const posts = forumData[sectionId] || [];
+    const tp = posts.find(p => p.id === postId);
+    if (!tp) { _hideForumCommentTyping(postId, commentIdx, 'reply'); return; }
+    const comment = tp.comments[commentIdx];
+    let replyChain = '';
+    if (comment && comment.replies) {
+      comment.replies.slice(-6).forEach(r => {
+        replyChain += `【${r.author}】回复【${r.replyTo || ''}】：${r.content}\n`;
+      });
+    }
+    const prompt = `${LANG_SYSTEM_PREFIX}你是${persona.name}，人设：${persona.persona}。
+你以自己的身份在论坛发了这个帖子，大家都知道发帖者就是你本人。
+标题：${targetPost.title}
+内容：${targetPost.content}
+原楼评论：${commentAuthor}：${originalCommentText}
+本楼回复串：
+${replyChain || '（暂无）'}
+现在用户「${userProfile.name}」对你说："${userReplyText}"
+你要以${persona.name}本人的身份继续回复用户。
+要求：
+- 你知道对方就是用户「${userProfile.name}」
+- 像公开论坛里的正常对话，不需要隐藏认识对方
+- 符合你的人设和说话方式，20-70字
+返回JSON：{"content":"回复内容"}
+只返回JSON。`;
+    const raw = await _forumApiFetch(prompt, 280);
+    const result = safeParseJSON(raw);
+    _hideForumCommentTyping(postId, commentIdx, 'reply');
+    if (!result || !result.content) return;
+    const fp = (forumData[sectionId] || []).find(p => p.id === postId);
+    if (!fp || !fp.comments[commentIdx]) return;
+    if (!fp.comments[commentIdx].replies) fp.comments[commentIdx].replies = [];
+    fp.comments[commentIdx].replies.push({
+      id: Date.now(),
+      author: persona.name,
+      avatar: persona.avatar || '',
+      content: result.content,
+      replyTo: userProfile.name,
+      time: Date.now(),
+      isPersonaComment: true,
+      authorType: 'persona'
+    });
+    _forumSyncMemoriesForPost(fp, sectionId);
+    saveForumState();
+    renderForum();
+  } catch(e) {
+    _hideForumCommentTyping(postId, commentIdx, 'reply');
+    console.warn('persona public reply-to-reply err:', e.message);
     _showApiErrorToast('论坛回复失败', e);
   }
 }
@@ -27226,32 +27455,9 @@ window.addEventListener('load', () => {
 // ===================== HOME SCREEN =====================
 // updateHomeScreen and renderCalendarGrid are defined in the top script block
 function openApp(pageId) {
-  document.getElementById('homeScreen').style.display = 'none';
-  document.querySelectorAll('.page').forEach(function(p) { p.classList.remove('active'); p.style.display = 'none'; });
-  var target = document.getElementById(pageId);
-  target.classList.add('active');
-  target.style.display = 'flex';
-  var menuBtn = document.getElementById('menuBtn');
-  var addBtn = document.getElementById('addBtn');
-  if (pageId === 'chatPage') {
-    menuBtn.style.display = 'flex';
-// REMOVED (addBtn): addBtn.style.display = 'flex';
-  } else {
-    menuBtn.style.display = 'none';
-// REMOVED (addBtn): addBtn.style.display = 'none';
-  }
-  if (pageId === 'shopPage') { initShopPage(); }
-  if (pageId === 'visitPage') { renderVisitCharList(); }
-  if (pageId === 'scriptPage') { initScriptPage(); }
-  if (pageId === 'notifCenterPage') { renderNotifCenter(); }
-  if (pageId === 'dreamPage') { renderDreamPage(); }
-  if (pageId === 'onlinePage' && typeof renderOnlineApp === 'function') { renderOnlineApp(); }
-  if (pageId === 'profilePage') { try { renderWorldBookList(); } catch(e) {} try { initMultiWorldUI(); } catch(e) {} }
-  if (pageId === 'chatPage') {
-    setTimeout(function() {
-      var chatBox = document.getElementById('chatBox');
-      if (chatBox) chatBox.scrollTop = chatBox.scrollHeight;
-    }, 80);
+  var ok = _showAppPage(pageId);
+  if (ok && pageId === 'profilePage') {
+    try { initMultiWorldUI(); } catch(e) {}
   }
 }
 function goHome() {
@@ -43213,6 +43419,73 @@ function _formatNarrative(text) {
 function _escHtml(t) {
   if (!t) return '';
   return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+}
+function _forumFindSectionName(sectionId) {
+  const sec = (forumSections || []).find(function(s) { return String(s.id) === String(sectionId); });
+  return sec ? sec.name : '论坛';
+}
+function _forumGetPostDisplayAuthor(post) {
+  if (!post) return '匿名';
+  if (post.authorType === 'user_anon') return '匿名';
+  if (post.authorType === 'persona_anon') return '匿名';
+  return post.author || '匿名';
+}
+function _forumBuildMemoryText(post, sectionId) {
+  if (!post) return '';
+  const sectionName = _forumFindSectionName(sectionId || post.sectionId || currentSectionId);
+  const lines = [];
+  lines.push('【论坛记忆】板块：' + sectionName);
+  lines.push('标题：' + (post.title || '（无标题）'));
+  lines.push('发帖者：' + _forumGetPostDisplayAuthor(post));
+  lines.push('正文：' + (post.content || ''));
+  const comments = Array.isArray(post.comments) ? post.comments : [];
+  if (comments.length) {
+    lines.push('评论区：');
+    comments.forEach(function(c, idx) {
+      lines.push((idx + 1) + '. ' + (c.author || '匿名') + '：' + (c.content || ''));
+      (c.replies || []).forEach(function(r) {
+        lines.push('   ↳ ' + (r.author || '匿名') + (r.replyTo ? (' 回复 ' + r.replyTo) : '') + '：' + (r.content || ''));
+      });
+    });
+  }
+  return lines.join('\n');
+}
+function _forumUpsertMemoryForPersona(persona, key, content, source) {
+  if (!persona || !key || !content) return;
+  if (!persona.memoryCore) persona.memoryCore = [];
+  const dateStr = new Date().toLocaleDateString('zh-CN');
+  const entry = { content: content, date: dateStr, source: source || '论坛', auto: true, _forumMemoryKey: key };
+  const idx = persona.memoryCore.findIndex(function(m) { return typeof m === 'object' && m._forumMemoryKey === key; });
+  if (idx >= 0) persona.memoryCore[idx] = entry;
+  else persona.memoryCore.push(entry);
+}
+function _forumSyncMemoriesForPost(post, sectionId) {
+  if (!post) return;
+  const text = _forumBuildMemoryText(post, sectionId);
+  if (!text) return;
+  if (post.authorType === 'user') {
+    (personas || []).forEach(function(persona) {
+      _forumUpsertMemoryForPersona(persona, 'forum_user_post_' + post.id + '_' + String(persona.id), text, '论坛·用户实名帖');
+    });
+  } else if (post.authorType === 'persona' || post.authorType === 'persona_anon') {
+    const persona = (personas || []).find(function(item) { return String(item.id) === String(post.personaId); });
+    if (persona) {
+      _forumUpsertMemoryForPersona(persona, 'forum_persona_post_' + post.id, text, post.authorType === 'persona' ? '论坛·角色实名帖' : '论坛·角色匿名帖');
+    }
+  }
+  if (typeof saveData === 'function') saveData();
+}
+function _forumRemoveMemoriesForPost(post) {
+  if (!post) return;
+  (personas || []).forEach(function(persona) {
+    if (!persona.memoryCore) return;
+    persona.memoryCore = persona.memoryCore.filter(function(m) {
+      if (typeof m !== 'object') return true;
+      if (post.authorType === 'user') return !String(m._forumMemoryKey || '').startsWith('forum_user_post_' + post.id + '_');
+      return m._forumMemoryKey !== 'forum_persona_post_' + post.id;
+    });
+  });
+  if (typeof saveData === 'function') saveData();
 }
 function _renderArchive() {
   var content = document.getElementById('offlineContent');
