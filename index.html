@@ -44432,24 +44432,46 @@ async function _generateOfflineResponse(session) {
     } else {
       messages = [{ role: 'system', content: systemPrompt }, { role: 'user', content: userMsg }];
     }
-    var r = await fetch(api.url.replace(/\/$/, '') + '/chat/completions', {
-      method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + api.key, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: api.model,
-        messages: messages,
-        temperature: p.temperature || 1.1,
-        max_tokens: (session.mode === 'if' && session.ifSubMode !== 'short') ? 800 : isShort ? 300 : 600
-      })
-    });
-    if (!r.ok) {
-      var errText = '';
-      try { errText = await r.text(); } catch(e2) {}
-      throw new Error('API 错误 ' + r.status + (errText ? '：' + errText.slice(0, 100) : ''));
+    var offlineMaxTokens = (session.mode === 'if' && session.ifSubMode !== 'short')
+      ? Math.max(1400, Math.min(4200, targetWords * 6))
+      : isShort
+        ? Math.max(500, Math.min(1800, targetWords * 4))
+        : Math.max(1200, Math.min(3200, targetWords * 5));
+    var requestMessages = messages.slice();
+    var reply = '';
+    for (var contRound = 0; contRound < 3; contRound++) {
+      var r = await fetch(api.url.replace(/\/$/, '') + '/chat/completions', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + api.key, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: api.model,
+          messages: requestMessages,
+          temperature: p.temperature || 1.1,
+          max_tokens: contRound === 0 ? offlineMaxTokens : Math.max(700, Math.floor(offlineMaxTokens * 0.75))
+        })
+      });
+      if (!r.ok) {
+        var errText = '';
+        try { errText = await r.text(); } catch(e2) {}
+        throw new Error('API 错误 ' + r.status + (errText ? '：' + errText.slice(0, 100) : ''));
+      }
+      var data = await r.json();
+      if (!data.choices || !data.choices[0]) throw new Error('API 返回格式異常');
+      var piece = (((data.choices[0] || {}).message || {}).content || '').trim();
+      if (piece) {
+        reply += (reply ? '\n' : '') + piece;
+      }
+      var finishReason = String((data.choices[0] || {}).finish_reason || '').toLowerCase();
+      var looksCutOff = finishReason === 'length'
+        || (!isShort && piece && piece.length > 80 && !/[。！？!?…」』】）》]$/.test(piece));
+      if (!looksCutOff) break;
+      requestMessages = messages.concat([
+        { role: 'assistant', content: reply },
+        { role: 'user', content: '（你上一段线下剧情被系统长度截断了。请从刚才停下的位置继续，不要重复开头，不要总结，直接自然续写到这一段剧情完整结束。）' }
+      ]);
     }
-    var data = await r.json();
-    if (!data.choices || !data.choices[0]) throw new Error('API 返回格式異常');
-    var reply = data.choices[0].message.content.trim();
+    reply = reply.trim();
+    if (!reply) throw new Error('线下剧情生成为空');
     session.entries.push({ role: 'char', content: reply, ts: Date.now(), mode: _offlineState.tab });
     session.updatedAt = Date.now();
     await _maybeAutoSummarizeOfflineSession(session, p, uName);
