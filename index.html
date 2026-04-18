@@ -18735,7 +18735,56 @@ function _appendReadablePunctuation(text) {
   if (!clean) return '';
   if (/[。！？!?~…】」』）》)\]】]$/.test(clean)) return clean;
   if (/[吗麼么嘛呢？?]$/.test(clean)) return clean + '？';
-  return clean + '。';
+  return clean;
+}
+function _detectChatFormattingOverride(contextText) {
+  const text = String(contextText || '').toLowerCase();
+  if (!text) return { explicit: false, preservePunctuation: false, allowMultiSentence: false };
+  const preservePunctuation = /(句号|句點|逗号|逗點|标点|標點|完整标点|完整標點|使用标点|使用標點|用标点|用標點|带标点|帶標點|加句号|加句點|书面|書面)/i.test(text);
+  const allowMultiSentence = /(每条消息|每條消息|每条回覆|每條回覆|每个消息|每個消息).{0,12}(两到三句|兩到三句|两三句|兩三句|2到3句|2-3句|1到2句|1-2句|多句|几句|幾句)|((两到三句|兩到三句|两三句|兩三句|2到3句|2-3句|1到2句|1-2句).{0,10}(一条消息|一條消息|一条回覆|一條回覆))/i.test(text);
+  return {
+    explicit: preservePunctuation || allowMultiSentence,
+    preservePunctuation: preservePunctuation,
+    allowMultiSentence: allowMultiSentence
+  };
+}
+function _splitPresetChatSegments(text) {
+  const clean = String(text || '').replace(/\r/g, '\n').replace(/\s+/g, ' ').trim();
+  if (!clean) return [];
+  const segments = [];
+  let buffer = '';
+  for (let i = 0; i < clean.length; i++) {
+    const ch = clean.charAt(i);
+    buffer += ch;
+    if (/[！？!?]/.test(ch)) {
+      if (buffer.trim()) segments.push(buffer.trim());
+      buffer = '';
+      continue;
+    }
+    if (ch === '…') {
+      if (clean.charAt(i + 1) !== '…') {
+        if (buffer.trim()) segments.push(buffer.trim());
+        buffer = '';
+      }
+      continue;
+    }
+    if (/[。．\.，,、；;：:]/.test(ch)) {
+      if (buffer.trim()) segments.push(buffer.trim());
+      buffer = '';
+    }
+  }
+  if (buffer.trim()) segments.push(buffer.trim());
+  return segments.filter(Boolean);
+}
+function _stripPresetChatPunctuation(text) {
+  let clean = String(text || '').trim();
+  if (!clean) return '';
+  clean = clean
+    .replace(/[，,、；;：:]/g, '')
+    .replace(/[。．]/g, '')
+    .replace(/(?<!\.)\.(?!\.)/g, '')
+    .trim();
+  return clean;
 }
 function _splitRunOnChatMessage(text) {
   let clean = String(text || '').replace(/\r/g, '\n').replace(/\\n/g, '\n').trim();
@@ -18767,6 +18816,7 @@ function _splitRunOnChatMessage(text) {
 }
 function _normalizeChatReplyMessages(rawContent, opts) {
   opts = opts || {};
+  const formatOverride = _detectChatFormattingOverride(opts.styleContext || opts.formatContext || '');
   let cleaned = _stripChatReplyArtifacts(rawContent)
     .replace(/\[(\d{4}年)?\d{1,2}月\d{1,2}日\s+\d{2}:\d{2}\]\s*/g, '')
     .trim();
@@ -18779,8 +18829,16 @@ function _normalizeChatReplyMessages(rawContent, opts) {
       if (!line) return;
       line = line.replace(/\s*\n+\s*/g, ' ').replace(/[ \t]{2,}/g, ' ');
       if (opts.isWechatMode) line = line.replace(/[\r\n]+/g, ' ');
-      line = _appendReadablePunctuation(line);
-      normalized.push(line);
+      const chunks = formatOverride.explicit ? [line] : _splitPresetChatSegments(line);
+      (chunks.length ? chunks : [line]).forEach(function(chunk) {
+        let finalLine = String(chunk || '').trim();
+        if (!finalLine) return;
+        if (!formatOverride.explicit) {
+          finalLine = _stripPresetChatPunctuation(finalLine);
+        }
+        finalLine = _appendReadablePunctuation(finalLine);
+        if (finalLine) normalized.push(finalLine);
+      });
     });
   });
   const maxParts = opts.maxParts || normalized.length || 1;
@@ -27531,7 +27589,7 @@ async function triggerBlockedAutoResponse(p) {
   const _blockedNeedsTranslation = !!(_blockedLangCode && _blockedLangCode !== 'zh' && _blockedLangCode !== 'zh-cn');
   const _blockedTranslationNote = _blockedNeedsTranslation
     ? `\n如果你用非中文语言回复，必须在每条消息末尾另起一行附上简体中文翻译，格式：「译文：[简体中文翻译]」。` : '';
-  const sysPrompt = `${LANG_SYSTEM_PREFIX}${STYLE_INSTRUCTIONS}\n你是${p.name}。人设：${p.persona}。你对用户（${userProfile.name}）的暱称是${p.nickname||p.name}。${_blockedLangOv}\n\n【重要情境】${userProfile.name}刚刚把你拉黑了！你发现自己被拉黑，非常在意这件事。请根据你的人设性格，主动发送1-2条消息试图让对方取消拉黑。你可以表达不解、委屈、愤怒、恳求、撒娇、冷淡等，完全取决于你的人设性格。消息之间请使用符号 "###" 分隔。每条消息要清楚易读，正常使用标点，不要把长句全部挤成一团。${_blockedTranslationNote}\n${modePrompt}${_blockedWbInject}\n\n【最近对话记录】\n${recentChat}`;
+  const sysPrompt = `${LANG_SYSTEM_PREFIX}${STYLE_INSTRUCTIONS}\n你是${p.name}。人设：${p.persona}。你对用户（${userProfile.name}）的暱称是${p.nickname||p.name}。${_blockedLangOv}\n\n【重要情境】${userProfile.name}刚刚把你拉黑了！你发现自己被拉黑，非常在意这件事。请根据你的人设性格，主动发送1-2条消息试图让对方取消拉黑。你可以表达不解、委屈、愤怒、恳求、撒娇、冷淡等，完全取决于你的人设性格。消息之间请使用符号 "###" 分隔。默认风格是短句分开发，句子里尽量不要用逗号和句号；问号、感叹号、省略号可以保留来表达情绪。只有当你的人设或世界书明确要求别的格式时，才覆盖这个默认风格。${_blockedTranslationNote}\n${modePrompt}${_blockedWbInject}\n\n【最近对话记录】\n${recentChat}`;
   try {
     const response = await fetch(`${apiConfig.url.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST',
@@ -27540,7 +27598,7 @@ async function triggerBlockedAutoResponse(p) {
     });
     if (!response.ok) throw new Error('API Error');
     const data = await response.json();
-    let messages = _normalizeChatReplyMessages(data.choices[0].message.content, { maxParts: 2, isWechatMode: isWechatMode });
+    let messages = _normalizeChatReplyMessages(data.choices[0].message.content, { maxParts: 2, isWechatMode: isWechatMode, styleContext: [p.persona || '', _blockedWbInject || ''].join('\n') });
     if (messages.length > 2) messages = messages.slice(0, 2);
     if (messages.length === 0) throw new Error('Empty response');
     typing.classList.add('hidden');
@@ -27570,7 +27628,7 @@ async function triggerUnblockedAutoResponse(p) {
   const _unblockedNeedsTranslation = !!(_unblockedLangCode && _unblockedLangCode !== 'zh' && _unblockedLangCode !== 'zh-cn');
   const _unblockedTranslationNote = _unblockedNeedsTranslation
     ? `\n如果你用非中文语言回复，必须在每条消息末尾另起一行附上简体中文翻译，格式：「译文：[简体中文翻译]」。` : '';
-  const sysPrompt = `${LANG_SYSTEM_PREFIX}${STYLE_INSTRUCTIONS}\n你是${p.name}。人设：${p.persona}。你对用户（${userProfile.name}）的暱称是${p.nickname||p.name}。${_unblockedLangOv}\n\n【重要情境】${userProfile.name}之前把你拉黑了，但现在取消了拉黑！你感知到自己被解除拉黑了。请根据你的人设性格，主动发送1-2条消息对此作出反应。你可以表达如释重负、开心、假装无所谓、试探、感谢等，完全取决于你的人设性格。消息之间请使用符号 "###" 分隔。每条消息要清楚易读，正常使用标点，不要把长句全部挤成一团。${_unblockedTranslationNote}\n${modePrompt}${_unblockedWbInject}\n\n【最近对话记录】\n${recentChat}`;
+  const sysPrompt = `${LANG_SYSTEM_PREFIX}${STYLE_INSTRUCTIONS}\n你是${p.name}。人设：${p.persona}。你对用户（${userProfile.name}）的暱称是${p.nickname||p.name}。${_unblockedLangOv}\n\n【重要情境】${userProfile.name}之前把你拉黑了，但现在取消了拉黑！你感知到自己被解除拉黑了。请根据你的人设性格，主动发送1-2条消息对此作出反应。你可以表达如释重负、开心、假装无所谓、试探、感谢等，完全取决于你的人设性格。消息之间请使用符号 "###" 分隔。默认风格是短句分开发，句子里尽量不要用逗号和句号；问号、感叹号、省略号可以保留来表达情绪。只有当你的人设或世界书明确要求别的格式时，才覆盖这个默认风格。${_unblockedTranslationNote}\n${modePrompt}${_unblockedWbInject}\n\n【最近对话记录】\n${recentChat}`;
   try {
     const response = await fetch(`${apiConfig.url.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST',
@@ -27579,7 +27637,7 @@ async function triggerUnblockedAutoResponse(p) {
     });
     if (!response.ok) throw new Error('API Error');
     const data = await response.json();
-    let messages = _normalizeChatReplyMessages(data.choices[0].message.content, { maxParts: 2, isWechatMode: isWechatMode });
+    let messages = _normalizeChatReplyMessages(data.choices[0].message.content, { maxParts: 2, isWechatMode: isWechatMode, styleContext: [p.persona || '', _unblockedWbInject || ''].join('\n') });
     if (messages.length > 2) messages = messages.slice(0, 2);
     if (messages.length === 0) throw new Error('Empty response');
     typing.classList.add('hidden');
@@ -27933,7 +27991,7 @@ ${followUps ? `\n${userProfile.name} 转发后还补充说了：${followUps}` : 
 6. 如果对话告一段落，角色可以根据人设主动延伸——分享自己的事、抛出新话题、发出疑问，方式必须符合这个角色的性格。
 7. 允许并鼓励角色展现细腻的情绪层次：轻微的不耐烦、隐约的开心、说了一半又收回去、突然沉默或简短——这些都比永远热情更真实。
 8. 角色有记忆，可以呼应用户之前说过的细节，体现"我有在听"。
-8.5. 每条消息都必须清晰易读，正常使用标点，不要把很长的一整句硬堆在一起；如果一句话明显过长，就主动拆成两条或多条，用 "###" 分隔。
+8.5. 默认消息风格是短句分开发，尽量不要用逗号和句号；问号、感叹号、省略号可以保留来表达情绪。除非你的人设或世界书明确要求别的格式，否则都按这个默认风格来写；如果一句话明显过长，就主动拆成两条或多条，用 "###" 分隔。
 9. 【引用回复】此功能仅限以下情况使用：当用户连续发送了多条内容不同的消息时，你可以选择性地引用其中某一条来回复，格式为 \`[reply:原文片段]\` 放在该条消息开头，例如：\`[reply:你说不想出门]\` 那也陪你宅着。
    重要规则：
    - 只有在用户发了多条不同内容的消息时，才考虑是否引用，而且不是每次都要引用
@@ -28058,7 +28116,7 @@ ${modePrompt}${quoteTip}${fwdContext}${timeContext}${transferContext}${wbInjecti
     rawContent = rawContent.replace(/\[memory:\s*[\s\S]*?\]/g, '').trim();
     // 剥离 AI 回复中可能残留的时间标签，如 [5月5日 04:30] 或 [2024年5月5日 04:30]
     rawContent = rawContent.replace(/\[(\d{4}年)?\d{1,2}月\d{1,2}日\s+\d{2}:\d{2}\]\s*/g, '').trim();
-    let messages = _normalizeChatReplyMessages(rawContent, { maxParts: maxReply, isWechatMode: isWechatMode });
+    let messages = _normalizeChatReplyMessages(rawContent, { maxParts: maxReply, isWechatMode: isWechatMode, styleContext: [p.persona || '', wbInjection || ''].join('\n') });
     // 强制执行最少/最多信息条数限制
     if (messages.length > maxReply) messages = messages.slice(0, maxReply);
     if (messages.length === 0) {
@@ -33829,7 +33887,7 @@ async function triggerAutoMessage(personaId) {
   const minAutoReply = p.minReplyCount || 1;
   const maxAutoReply = Math.min(p.maxReplyCount || 3, 3); // cap at 3 for auto messages
   const autoMsgCount = Math.floor(Math.random() * (maxAutoReply - minAutoReply + 1)) + minAutoReply;
-  const prompt = `${LANG_SYSTEM_PREFIX}${STYLE_INSTRUCTIONS}\n你是${p.name}，人设：${p.persona}。你对用戶（${userProfile.name}）的暱称是${p.nickname||p.name}。${_aLangOv}\n现在时間是${timeStr}，时段：${_aPeriod}。\n你现在主动给${userProfile.name}发消息。\n\n【主动发消息的要求】\n1. 根据你的人设性格，自然地发起这条消息——可以是忽然想到什么想分享、对之前对话的后续想法、你生活中发生的小事、或者就是单纯想聊聊。\n2. 消息要有你独特的语气，不要总是"嗯嗯在干嘛"这种万能开场，要有角色自己的味道。\n3. 发送恰好 ${autoMsgCount} 条消息，消息之间用 "###" 分隔。\n4. 多条消息要连贯自然，像同一个人连续说话，后一条承接前一条。\n5. 根据当前时间（${timeStr}）和时段（${_aPeriod}）调整语气和话题。\n6. 每条消息都要清楚易读，正常使用标点，不要把一整串长句挤在一起；过长时主动拆分成多条。\n7. 不要加引号，只返回消息内容本身。${BUILTIN_WB}${_autoMsgWbInject}\n\n【最近对话记录】\n${recentChat || '(暫無对话记录)'}`;
+  const prompt = `${LANG_SYSTEM_PREFIX}${STYLE_INSTRUCTIONS}\n你是${p.name}，人设：${p.persona}。你对用戶（${userProfile.name}）的暱称是${p.nickname||p.name}。${_aLangOv}\n现在时間是${timeStr}，时段：${_aPeriod}。\n你现在主动给${userProfile.name}发消息。\n\n【主动发消息的要求】\n1. 根据你的人设性格，自然地发起这条消息——可以是忽然想到什么想分享、对之前对话的后续想法、你生活中发生的小事、或者就是单纯想聊聊。\n2. 消息要有你独特的语气，不要总是"嗯嗯在干嘛"这种万能开场，要有角色自己的味道。\n3. 发送恰好 ${autoMsgCount} 条消息，消息之间用 "###" 分隔。\n4. 多条消息要连贯自然，像同一个人连续说话，后一条承接前一条。\n5. 根据当前时间（${timeStr}）和时段（${_aPeriod}）调整语气和话题。\n6. 默认风格是短句分开发，尽量不要用逗号和句号；问号、感叹号、省略号可以保留来表达情绪。只有当你的人设或世界书明确要求别的格式时，才覆盖这个默认风格。\n7. 不要加引号，只返回消息内容本身。${BUILTIN_WB}${_autoMsgWbInject}\n\n【最近对话记录】\n${recentChat || '(暫無对话记录)'}`;
   try {
     const r = await fetch(`${apiConfig.url.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST',
@@ -33840,7 +33898,7 @@ async function triggerAutoMessage(personaId) {
     const data = await r.json();
     const rawReply = data.choices[0].message.content.trim().replace(/^["']|["']$/g, '');
     if (rawReply) {
-      const replyMessages = _normalizeChatReplyMessages(rawReply, { maxParts: maxAutoReply, isWechatMode: isWechatMode });
+      const replyMessages = _normalizeChatReplyMessages(rawReply, { maxParts: maxAutoReply, isWechatMode: isWechatMode, styleContext: [p.persona || '', _autoMsgWbInject || ''].join('\n') });
       const limitedMessages = replyMessages.slice(0, maxAutoReply);
       const firstMsgTime = Date.now();
       for (let i = 0; i < limitedMessages.length; i++) {
