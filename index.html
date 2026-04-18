@@ -18748,9 +18748,22 @@ function _detectChatFormattingOverride(contextText) {
     allowMultiSentence: allowMultiSentence
   };
 }
+function _isForeignChatFormatting(opts, text) {
+  opts = opts || {};
+  var langCode = String(opts.langCode || '').toLowerCase();
+  if (langCode && langCode !== 'zh' && langCode !== 'zh-cn' && langCode !== 'yue') return true;
+  var sample = String(text || '');
+  var cjk = (sample.match(/[\u3400-\u9fff]/g) || []).length;
+  var latin = (sample.match(/[A-Za-z]/g) || []).length;
+  var kanaHangul = (sample.match(/[\u3040-\u30ff\uac00-\ud7af]/g) || []).length;
+  if (kanaHangul > 0 && cjk === 0) return true;
+  if (latin >= 8 && latin > cjk * 2) return true;
+  return false;
+}
 function _splitPresetChatSegments(text) {
   const clean = String(text || '').replace(/\r/g, '\n').replace(/\s+/g, ' ').trim();
   if (!clean) return [];
+  if (!/[。．！？!?…]/.test(clean)) return [clean];
   const segments = [];
   let buffer = '';
   for (let i = 0; i < clean.length; i++) {
@@ -18768,13 +18781,23 @@ function _splitPresetChatSegments(text) {
       }
       continue;
     }
-    if (/[。．\.，,、；;：:]/.test(ch)) {
+    if (/[。．\.]/.test(ch)) {
       if (buffer.trim()) segments.push(buffer.trim());
       buffer = '';
     }
   }
   if (buffer.trim()) segments.push(buffer.trim());
   return segments.filter(Boolean);
+}
+function _splitForeignChatSegments(text) {
+  var clean = String(text || '').replace(/\r/g, '\n').trim();
+  if (!clean) return [];
+  if (/\n/.test(clean)) {
+    return clean.split(/\n+/).map(function(part) { return part.trim(); }).filter(Boolean);
+  }
+  var segments = clean.match(/[^.!?…。！？\n]+(?:\.\.\.|…+|[.!?。！？]+)?/g);
+  if (!segments || !segments.length) return [clean];
+  return segments.map(function(part) { return part.trim(); }).filter(Boolean);
 }
 function _stripPresetChatPunctuation(text) {
   let clean = String(text || '').trim();
@@ -18822,18 +18845,22 @@ function _normalizeChatReplyMessages(rawContent, opts) {
     .trim();
   let parts = cleaned.split('###').map(function(s) { return s.trim(); }).filter(Boolean);
   if (!parts.length && cleaned) parts = [cleaned];
+  const useForeignRules = _isForeignChatFormatting(opts, cleaned);
   let normalized = [];
   parts.forEach(function(part) {
-    _splitRunOnChatMessage(part).forEach(function(seg) {
+    var firstPass = useForeignRules ? _splitForeignChatSegments(part) : _splitRunOnChatMessage(part);
+    firstPass.forEach(function(seg) {
       let line = String(seg || '').trim();
       if (!line) return;
       line = line.replace(/\s*\n+\s*/g, ' ').replace(/[ \t]{2,}/g, ' ');
       if (opts.isWechatMode) line = line.replace(/[\r\n]+/g, ' ');
-      const chunks = formatOverride.explicit ? [line] : _splitPresetChatSegments(line);
+      const chunks = formatOverride.explicit
+        ? [line]
+        : (useForeignRules ? _splitForeignChatSegments(line) : _splitPresetChatSegments(line));
       (chunks.length ? chunks : [line]).forEach(function(chunk) {
         let finalLine = String(chunk || '').trim();
         if (!finalLine) return;
-        if (!formatOverride.explicit) {
+        if (!formatOverride.explicit && !useForeignRules) {
           finalLine = _stripPresetChatPunctuation(finalLine);
         }
         finalLine = _appendReadablePunctuation(finalLine);
@@ -27598,7 +27625,7 @@ async function triggerBlockedAutoResponse(p) {
     });
     if (!response.ok) throw new Error('API Error');
     const data = await response.json();
-    let messages = _normalizeChatReplyMessages(data.choices[0].message.content, { maxParts: 2, isWechatMode: isWechatMode, styleContext: [p.persona || '', _blockedWbInject || ''].join('\n') });
+    let messages = _normalizeChatReplyMessages(data.choices[0].message.content, { maxParts: 2, isWechatMode: isWechatMode, styleContext: [p.persona || '', _blockedWbInject || ''].join('\n'), langCode: _blockedLangCode });
     if (messages.length > 2) messages = messages.slice(0, 2);
     if (messages.length === 0) throw new Error('Empty response');
     typing.classList.add('hidden');
@@ -27637,7 +27664,7 @@ async function triggerUnblockedAutoResponse(p) {
     });
     if (!response.ok) throw new Error('API Error');
     const data = await response.json();
-    let messages = _normalizeChatReplyMessages(data.choices[0].message.content, { maxParts: 2, isWechatMode: isWechatMode, styleContext: [p.persona || '', _unblockedWbInject || ''].join('\n') });
+    let messages = _normalizeChatReplyMessages(data.choices[0].message.content, { maxParts: 2, isWechatMode: isWechatMode, styleContext: [p.persona || '', _unblockedWbInject || ''].join('\n'), langCode: _unblockedLangCode });
     if (messages.length > 2) messages = messages.slice(0, 2);
     if (messages.length === 0) throw new Error('Empty response');
     typing.classList.add('hidden');
@@ -28116,7 +28143,7 @@ ${modePrompt}${quoteTip}${fwdContext}${timeContext}${transferContext}${wbInjecti
     rawContent = rawContent.replace(/\[memory:\s*[\s\S]*?\]/g, '').trim();
     // 剥离 AI 回复中可能残留的时间标签，如 [5月5日 04:30] 或 [2024年5月5日 04:30]
     rawContent = rawContent.replace(/\[(\d{4}年)?\d{1,2}月\d{1,2}日\s+\d{2}:\d{2}\]\s*/g, '').trim();
-    let messages = _normalizeChatReplyMessages(rawContent, { maxParts: maxReply, isWechatMode: isWechatMode, styleContext: [p.persona || '', wbInjection || ''].join('\n') });
+    let messages = _normalizeChatReplyMessages(rawContent, { maxParts: maxReply, isWechatMode: isWechatMode, styleContext: [p.persona || '', wbInjection || ''].join('\n'), langCode: _personaLangCode });
     // 强制执行最少/最多信息条数限制
     if (messages.length > maxReply) messages = messages.slice(0, maxReply);
     if (messages.length === 0) {
@@ -33898,7 +33925,7 @@ async function triggerAutoMessage(personaId) {
     const data = await r.json();
     const rawReply = data.choices[0].message.content.trim().replace(/^["']|["']$/g, '');
     if (rawReply) {
-      const replyMessages = _normalizeChatReplyMessages(rawReply, { maxParts: maxAutoReply, isWechatMode: isWechatMode, styleContext: [p.persona || '', _autoMsgWbInject || ''].join('\n') });
+      const replyMessages = _normalizeChatReplyMessages(rawReply, { maxParts: maxAutoReply, isWechatMode: isWechatMode, styleContext: [p.persona || '', _autoMsgWbInject || ''].join('\n'), langCode: typeof _detectPersonaLang === 'function' ? _detectPersonaLang(p) : '' });
       const limitedMessages = replyMessages.slice(0, maxAutoReply);
       const firstMsgTime = Date.now();
       for (let i = 0; i < limitedMessages.length; i++) {
