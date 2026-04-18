@@ -14000,6 +14000,10 @@ body:not(.ios-fullscreen) .family-widget {
         </div>
         <div id="stickerSendView" class="sticker-grid"></div>
         <div id="stickerManageView" style="display:none;padding:0;overflow-y:auto;flex:1;min-height:0;">
+          <div style="padding:12px 12px 4px;">
+            <label style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#888;display:block;margin-bottom:6px;">表情包库</label>
+            <div id="stickerLibraryToolbar" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+          </div>
           <div class="sticker-url-section">
             <label style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#888;display:block;margin-bottom:6px;">透过URL导入表情包</label>
             <input type="text" class="sticker-url-input" id="stickerUrlInput" placeholder="输入表情包图片URL (支持 .png, .jpg, .gif, .webp)">
@@ -14012,6 +14016,16 @@ body:not(.ios-fullscreen) .family-widget {
             <div style="display:flex;gap:6px;">
               <button onclick="importStickerFromUrl()" class="custom-btn primary" style="flex:1;text-align:center;font-size:10px;padding:8px;">导入表情包</button>
             </div>
+          </div>
+          <div class="sticker-url-section" style="border-top:1px solid rgba(0,0,0,0.06);">
+            <label style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#888;display:block;margin-bottom:6px;">批量导入图片 URL</label>
+            <textarea id="stickerBulkUrlInput" class="sticker-caption-input" rows="5" placeholder="每行一个图片 URL，可无限制粘贴"></textarea>
+            <label style="font-size:10px;cursor:pointer;display:flex;align-items:center;gap:6px;margin:8px 0;">
+              <input type="checkbox" id="stickerBulkUrlAutoDesc" style="accent-color:#1a1a1a;">
+              <span>导入后自动 AI 识图生成文字描述</span>
+            </label>
+            <div id="stickerBulkUrlStatus" style="display:none;font-size:10px;color:#888;text-align:center;padding:4px 0;"><i class="fas fa-spinner fa-spin" style="margin-right:4px;"></i>正在批量导入图片 URL...</div>
+            <button onclick="importStickerUrlsBulk()" class="custom-btn primary" style="width:100%;text-align:center;font-size:10px;padding:8px;">批量导入 URL 表情包</button>
           </div>
           <div style="padding:12px;">
             <div id="stickerManageGrid" class="sticker-grid" style="padding:0;"></div>
@@ -16352,11 +16366,16 @@ body:not(.ios-fullscreen) .family-widget {
       <label class="text-[10px] font-bold uppercase tracking-widest">表情包设置 Sticker Settings</label>
       <div style="display:flex;align-items:center;gap:10px;">
         <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;">
-          <input type="checkbox" id="pAllowSticker" style="width:16px;height:16px;accent-color:#1a1a1a;">
+          <input type="checkbox" id="pAllowSticker" style="width:16px;height:16px;accent-color:#1a1a1a;" onchange="togglePersonaStickerLibraryPicker()">
           <span>允许角色发送表情包</span>
         </label>
       </div>
       <p style="font-size:10px;color:#999;margin-top:2px;">开啟后，角色可根据情況从表情包库中选择表情包发送（频率根据人设决定）。</p>
+      <div id="pStickerLibraryPickerWrap" style="display:none;margin-top:10px;padding:10px;border:1px solid #eee;border-radius:12px;background:#fafafa;">
+        <label style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:8px;">角色可用表情包库</label>
+        <div id="pStickerLibraryList" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+        <p style="font-size:10px;color:#999;margin-top:8px;">可多选。选中的角色只会从这些表情包库里发送表情包；如果未选择任何库，则默认可使用全部表情包库。</p>
+      </div>
     </div>
     <div class="space-y-2">
       <label class="text-[10px] font-bold uppercase tracking-widest">语音设置 Voice Settings</label>
@@ -19472,6 +19491,7 @@ function saveCurrentPersona() {
     temperature: p.temperature,
     timeAwareness: p.timeAwareness,
     allowSticker: p.allowSticker,
+    stickerLibraryIds: Array.isArray(p.stickerLibraryIds) ? p.stickerLibraryIds : [],
     allowVoice: p.allowVoice,
     memoryCount: p.memoryCount,
     memoryCore: p.memoryCore || [],
@@ -19520,6 +19540,8 @@ function openEditor(isEdit=false) {
     document.getElementById('pTempVal').textContent = '1';
     document.getElementById('pTimeAwareness').checked = false;
     document.getElementById('pAllowSticker').checked = false;
+    renderPersonaStickerLibraryOptions([]);
+    togglePersonaStickerLibraryPicker();
     document.getElementById('pAllowVoice').checked = false;
     document.getElementById('pVoiceId').value = '';
     if (document.getElementById('pVoiceSpeed')) { document.getElementById('pVoiceSpeed').value = 1.0; document.getElementById('pVoiceSpeedVal').textContent = '1.0x'; }
@@ -19586,6 +19608,8 @@ function openEditor(isEdit=false) {
     document.getElementById('pTempVal').textContent = p.temperature || '1';
     document.getElementById('pTimeAwareness').checked = !!p.timeAwareness;
     document.getElementById('pAllowSticker').checked = !!p.allowSticker;
+    renderPersonaStickerLibraryOptions(Array.isArray(p.stickerLibraryIds) ? p.stickerLibraryIds : []);
+    togglePersonaStickerLibraryPicker();
     document.getElementById('pAllowVoice').checked = !!p.allowVoice;
     document.getElementById('pVoiceId').value = p.voiceId || '';
     if (document.getElementById('pVoiceSpeed')) { const _spd = parseFloat(p.voiceSpeed) || 1.0; document.getElementById('pVoiceSpeed').value = _spd; document.getElementById('pVoiceSpeedVal').textContent = _spd.toFixed(1) + 'x'; }
@@ -19687,6 +19711,7 @@ function savePersona() {
   const temperature = parseFloat(document.getElementById('pTemperature').value) || 1.0;
   const timeAwareness = document.getElementById('pTimeAwareness').checked;
   const allowSticker = document.getElementById('pAllowSticker').checked;
+  const stickerLibraryIds = allowSticker ? getSelectedPersonaStickerLibraryIds() : [];
   const allowVoice = document.getElementById('pAllowVoice').checked;
   const voiceId = document.getElementById('pVoiceId').value.trim();
   const voiceSpeed = parseFloat((document.getElementById('pVoiceSpeed') || {}).value) || 1.0;
@@ -19699,11 +19724,11 @@ function savePersona() {
     const p = personas.find(x=>x.id==currentId);
     const _saveAiColor = document.getElementById('pBubbleAiFontColorEnabled').checked ? (document.getElementById('pBubbleAiFontColor').value||'') : '';
     const _saveUserColor = document.getElementById('pBubbleUserFontColorEnabled').checked ? (document.getElementById('pBubbleUserFontColor').value||'') : '';
-    if(p){ p.name=name; p.nickname=document.getElementById('pNick').value.trim(); p.persona=document.getElementById('pPersona').value.trim()||'一个简单的角色设定'; p.avatar=avatar; p.minReplyCount=minReply; p.maxReplyCount=maxReply; p.temperature=temperature; p.timeAwareness=timeAwareness; p.allowSticker=allowSticker; p.allowVoice=allowVoice; p.voiceId=voiceId; p.voiceSpeed=voiceSpeed; p.voiceLang=voiceLang; p.outputLang=outputLang; p.enableTranslation=enableTranslation; p.translateLang=translateLang; p.voiceFreq=voiceFreq; p.memoryCount=parseInt(document.getElementById('pMemoryCount').value)||100; p.autoMsg=document.getElementById('pAutoMsg').checked; p.autoMsgInterval=parseInt(document.getElementById('pAutoMsgInterval').value)||1; p.autoDiary=document.getElementById('pAutoDiary').checked; p.autoDiaryTime=document.getElementById('pAutoDiaryTime').value||'21:00'; p.autoMoments=document.getElementById('pAutoMoments').checked; p.autoMomentsTime=document.getElementById('pAutoMomentsTime').value||'20:00'; p.autoSummary=document.getElementById('pAutoSummary').checked; p.autoSummaryInterval=parseInt(document.getElementById('pAutoSummaryInterval').value)||20; p.bubbleAiCss=document.getElementById('pBubbleAiCss').value.trim(); p.bubbleUserCss=document.getElementById('pBubbleUserCss').value.trim(); p.chatRoomCustomCss=(document.getElementById('pRoomCustomCss')||{value:''}).value.trim(); p.bubbleAiFontColor=_saveAiColor; p.bubbleUserFontColor=_saveUserColor; p.bubblePreset=(document.getElementById('pBubblePreset')||{}).value||'none'; if(document.getElementById('pChatBgImg').src && document.getElementById('pChatBgImg').style.display!=='none') p.chatBgImage=document.getElementById('pChatBgImg').src; else p.chatBgImage=''; p.replyMode=_getSelectedReplyMode(); var _spd=document.querySelector('input[name="pReplySpeed"]:checked'); p.replySpeed=_spd?_spd.value:'fast'; p.replySpeedCustomMin=parseInt(document.getElementById('pReplySpeedCustomMin').value)||0; p.replySpeedCustomMax=parseInt(document.getElementById('pReplySpeedCustomMax').value)||10; p.showHeartVoiceInHeader=document.getElementById('pShowHeartVoiceInHeader').checked; p.allowCallTts=document.getElementById('pAllowCallTts').checked; }
+    if(p){ p.name=name; p.nickname=document.getElementById('pNick').value.trim(); p.persona=document.getElementById('pPersona').value.trim()||'一个简单的角色设定'; p.avatar=avatar; p.minReplyCount=minReply; p.maxReplyCount=maxReply; p.temperature=temperature; p.timeAwareness=timeAwareness; p.allowSticker=allowSticker; p.stickerLibraryIds=stickerLibraryIds; p.allowVoice=allowVoice; p.voiceId=voiceId; p.voiceSpeed=voiceSpeed; p.voiceLang=voiceLang; p.outputLang=outputLang; p.enableTranslation=enableTranslation; p.translateLang=translateLang; p.voiceFreq=voiceFreq; p.memoryCount=parseInt(document.getElementById('pMemoryCount').value)||100; p.autoMsg=document.getElementById('pAutoMsg').checked; p.autoMsgInterval=parseInt(document.getElementById('pAutoMsgInterval').value)||1; p.autoDiary=document.getElementById('pAutoDiary').checked; p.autoDiaryTime=document.getElementById('pAutoDiaryTime').value||'21:00'; p.autoMoments=document.getElementById('pAutoMoments').checked; p.autoMomentsTime=document.getElementById('pAutoMomentsTime').value||'20:00'; p.autoSummary=document.getElementById('pAutoSummary').checked; p.autoSummaryInterval=parseInt(document.getElementById('pAutoSummaryInterval').value)||20; p.bubbleAiCss=document.getElementById('pBubbleAiCss').value.trim(); p.bubbleUserCss=document.getElementById('pBubbleUserCss').value.trim(); p.chatRoomCustomCss=(document.getElementById('pRoomCustomCss')||{value:''}).value.trim(); p.bubbleAiFontColor=_saveAiColor; p.bubbleUserFontColor=_saveUserColor; p.bubblePreset=(document.getElementById('pBubblePreset')||{}).value||'none'; if(document.getElementById('pChatBgImg').src && document.getElementById('pChatBgImg').style.display!=='none') p.chatBgImage=document.getElementById('pChatBgImg').src; else p.chatBgImage=''; p.replyMode=_getSelectedReplyMode(); var _spd=document.querySelector('input[name="pReplySpeed"]:checked'); p.replySpeed=_spd?_spd.value:'fast'; p.replySpeedCustomMin=parseInt(document.getElementById('pReplySpeedCustomMin').value)||0; p.replySpeedCustomMax=parseInt(document.getElementById('pReplySpeedCustomMax').value)||10; p.showHeartVoiceInHeader=document.getElementById('pShowHeartVoiceInHeader').checked; p.allowCallTts=document.getElementById('pAllowCallTts').checked; }
   } else {
     const _saveAiColor = document.getElementById('pBubbleAiFontColorEnabled').checked ? (document.getElementById('pBubbleAiFontColor').value||'') : '';
     const _saveUserColor = document.getElementById('pBubbleUserFontColorEnabled').checked ? (document.getElementById('pBubbleUserFontColor').value||'') : '';
-    const newP = { id:Date.now(), name, nickname:document.getElementById('pNick').value.trim()||name, persona:document.getElementById('pPersona').value.trim()||'一个简单的角色设定', avatar, history:[], memoryCore:[], lastHeartVoice:null, autoSummary:document.getElementById('pAutoSummary').checked, autoSummaryInterval:parseInt(document.getElementById('pAutoSummaryInterval').value)||20, minReplyCount:minReply, maxReplyCount:maxReply, temperature:temperature, timeAwareness:timeAwareness, allowSticker:allowSticker, allowVoice:allowVoice, voiceId:voiceId, voiceSpeed:voiceSpeed, voiceLang:voiceLang, outputLang:outputLang, enableTranslation:enableTranslation, translateLang:translateLang, voiceFreq:voiceFreq, memoryCount:parseInt(document.getElementById('pMemoryCount').value)||100, autoMsg:document.getElementById('pAutoMsg').checked, autoMsgInterval:parseInt(document.getElementById('pAutoMsgInterval').value)||1, autoDiary:document.getElementById('pAutoDiary').checked, autoDiaryTime:document.getElementById('pAutoDiaryTime').value||'21:00', autoMoments:document.getElementById('pAutoMoments').checked, autoMomentsTime:document.getElementById('pAutoMomentsTime').value||'20:00', bubbleAiCss:document.getElementById('pBubbleAiCss').value.trim(), bubbleUserCss:document.getElementById('pBubbleUserCss').value.trim(), chatRoomCustomCss:(document.getElementById('pRoomCustomCss')||{value:''}).value.trim(), bubbleAiFontColor:_saveAiColor, bubbleUserFontColor:_saveUserColor, bubblePreset:(document.getElementById('pBubblePreset')||{}).value||'none', chatBgImage:(document.getElementById('pChatBgImg').style.display!=='none'?document.getElementById('pChatBgImg').src:''), replyMode:_getSelectedReplyMode(), replySpeed:(document.querySelector('input[name="pReplySpeed"]:checked')||{}).value||'fast', replySpeedCustomMin:parseInt(document.getElementById('pReplySpeedCustomMin').value)||0, replySpeedCustomMax:parseInt(document.getElementById('pReplySpeedCustomMax').value)||10, showHeartVoiceInHeader:document.getElementById('pShowHeartVoiceInHeader').checked, allowCallTts:document.getElementById('pAllowCallTts').checked };
+    const newP = { id:Date.now(), name, nickname:document.getElementById('pNick').value.trim()||name, persona:document.getElementById('pPersona').value.trim()||'一个简单的角色设定', avatar, history:[], memoryCore:[], lastHeartVoice:null, autoSummary:document.getElementById('pAutoSummary').checked, autoSummaryInterval:parseInt(document.getElementById('pAutoSummaryInterval').value)||20, minReplyCount:minReply, maxReplyCount:maxReply, temperature:temperature, timeAwareness:timeAwareness, allowSticker:allowSticker, stickerLibraryIds:stickerLibraryIds, allowVoice:allowVoice, voiceId:voiceId, voiceSpeed:voiceSpeed, voiceLang:voiceLang, outputLang:outputLang, enableTranslation:enableTranslation, translateLang:translateLang, voiceFreq:voiceFreq, memoryCount:parseInt(document.getElementById('pMemoryCount').value)||100, autoMsg:document.getElementById('pAutoMsg').checked, autoMsgInterval:parseInt(document.getElementById('pAutoMsgInterval').value)||1, autoDiary:document.getElementById('pAutoDiary').checked, autoDiaryTime:document.getElementById('pAutoDiaryTime').value||'21:00', autoMoments:document.getElementById('pAutoMoments').checked, autoMomentsTime:document.getElementById('pAutoMomentsTime').value||'20:00', bubbleAiCss:document.getElementById('pBubbleAiCss').value.trim(), bubbleUserCss:document.getElementById('pBubbleUserCss').value.trim(), chatRoomCustomCss:(document.getElementById('pRoomCustomCss')||{value:''}).value.trim(), bubbleAiFontColor:_saveAiColor, bubbleUserFontColor:_saveUserColor, bubblePreset:(document.getElementById('pBubblePreset')||{}).value||'none', chatBgImage:(document.getElementById('pChatBgImg').style.display!=='none'?document.getElementById('pChatBgImg').src:''), replyMode:_getSelectedReplyMode(), replySpeed:(document.querySelector('input[name="pReplySpeed"]:checked')||{}).value||'fast', replySpeedCustomMin:parseInt(document.getElementById('pReplySpeedCustomMin').value)||0, replySpeedCustomMax:parseInt(document.getElementById('pReplySpeedCustomMax').value)||10, showHeartVoiceInHeader:document.getElementById('pShowHeartVoiceInHeader').checked, allowCallTts:document.getElementById('pAllowCallTts').checked };
     personas.push(newP); currentId=newP.id;
   }
   saveData(); renderContactList(); if(currentId) selectPersona(currentId); closeEditor(); renderDiaryTabs();
@@ -25472,7 +25497,8 @@ function getPersonaWithBg(p) {
 }
 // ---- PERSONA STICKER SENDING ----
 async function tryPersonaSendSticker(p) {
-  const stickers = getStickers();
+  const allowedLibraryIds = Array.isArray(p.stickerLibraryIds) && p.stickerLibraryIds.length ? p.stickerLibraryIds : null;
+  const stickers = getStickers(allowedLibraryIds);
   if (stickers.length === 0) return;
   // Determine probability based on persona warmth
   const persona = (p.persona || '').toLowerCase();
@@ -25856,14 +25882,158 @@ async function tryPersonaInitiateTransfer(p, recentChat) {
   } catch(e) {}
 }
 // ===================== 表情包库 STICKER LIBRARY =====================
-function getStickers() {
-  return JSON.parse(localStorage.getItem('mono_stickers') || '[]');
-}
-function saveStickers(arr) {
-  localStorage.setItem('mono_stickers', JSON.stringify(arr));
-}
 let _stickerPendingImage = null;
 let _stickerEditIdx = null;
+let _currentStickerLibraryId = null;
+let _stickerSendLibraryFilter = 'all';
+function _makeStickerLibraryId() {
+  return 'sticker_lib_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+}
+function _normalizeStickerItem(item) {
+  const out = Object.assign({}, item || {});
+  if (!out.src) out.src = '';
+  if (!out.caption) out.caption = '';
+  if (!out._visionDesc) out._visionDesc = out.caption || '';
+  return out;
+}
+function _normalizeStickerLibrary(lib, index) {
+  return {
+    id: lib && lib.id ? lib.id : ('sticker_lib_import_' + index),
+    name: lib && lib.name ? lib.name : ('表情包库 ' + (index + 1)),
+    stickers: Array.isArray(lib && lib.stickers) ? lib.stickers.map(_normalizeStickerItem) : []
+  };
+}
+function _flattenStickerLibraries(libs) {
+  return (Array.isArray(libs) ? libs : []).flatMap(function(lib) {
+    return (lib.stickers || []).map(_normalizeStickerItem);
+  });
+}
+function getStickerLibraries() {
+  let libs = [];
+  try {
+    libs = JSON.parse(localStorage.getItem('mono_sticker_libraries_v2') || '[]');
+  } catch(e) {}
+  if (!Array.isArray(libs) || libs.length === 0) {
+    let legacy = [];
+    try { legacy = JSON.parse(localStorage.getItem('mono_stickers') || '[]'); } catch(e) {}
+    libs = [{ id: 'sticker_lib_default', name: '默认表情包库', stickers: Array.isArray(legacy) ? legacy.map(_normalizeStickerItem) : [] }];
+    localStorage.setItem('mono_sticker_libraries_v2', JSON.stringify(libs));
+    localStorage.setItem('mono_stickers', JSON.stringify(_flattenStickerLibraries(libs)));
+  }
+  libs = libs.map(_normalizeStickerLibrary);
+  if (!_currentStickerLibraryId || !libs.some(function(lib) { return lib.id === _currentStickerLibraryId; })) {
+    _currentStickerLibraryId = libs[0] ? libs[0].id : null;
+  }
+  return libs;
+}
+function saveStickerLibraries(libs) {
+  const safeLibs = (Array.isArray(libs) ? libs : []).map(_normalizeStickerLibrary);
+  localStorage.setItem('mono_sticker_libraries_v2', JSON.stringify(safeLibs));
+  localStorage.setItem('mono_stickers', JSON.stringify(_flattenStickerLibraries(safeLibs)));
+  if (!_currentStickerLibraryId || !safeLibs.some(function(lib) { return lib.id === _currentStickerLibraryId; })) {
+    _currentStickerLibraryId = safeLibs[0] ? safeLibs[0].id : null;
+  }
+}
+function getStickerLibraryById(id) {
+  return getStickerLibraries().find(function(lib) { return lib.id === id; }) || null;
+}
+function getCurrentStickerLibraryId() {
+  const libs = getStickerLibraries();
+  if (!_currentStickerLibraryId && libs[0]) _currentStickerLibraryId = libs[0].id;
+  return _currentStickerLibraryId;
+}
+function setCurrentStickerLibrary(id) {
+  const libs = getStickerLibraries();
+  if (libs.some(function(lib) { return lib.id === id; })) {
+    _currentStickerLibraryId = id;
+  }
+  renderStickerManageView();
+}
+function createStickerLibrary() {
+  const name = prompt('请输入新的表情包库名称：', '');
+  if (!name || !name.trim()) return;
+  const libs = getStickerLibraries();
+  const newLib = { id: _makeStickerLibraryId(), name: name.trim(), stickers: [] };
+  libs.push(newLib);
+  saveStickerLibraries(libs);
+  _currentStickerLibraryId = newLib.id;
+  renderStickerManageView();
+  renderPersonaStickerLibraryOptions(getSelectedPersonaStickerLibraryIds());
+}
+function renameStickerLibrary(id) {
+  const libs = getStickerLibraries();
+  const target = libs.find(function(lib) { return lib.id === id; });
+  if (!target) return;
+  const name = prompt('修改表情包库名称：', target.name || '');
+  if (!name || !name.trim()) return;
+  target.name = name.trim();
+  saveStickerLibraries(libs);
+  renderStickerManageView();
+  renderStickerSendView();
+  renderPersonaStickerLibraryOptions(getSelectedPersonaStickerLibraryIds());
+}
+function deleteStickerLibrary(id) {
+  const libs = getStickerLibraries();
+  if (libs.length <= 1) { alert('至少需要保留一个表情包库'); return; }
+  const target = libs.find(function(lib) { return lib.id === id; });
+  if (!target) return;
+  if (!confirm('确定删除表情包库“' + target.name + '”？库内表情包也会一起删除。')) return;
+  const nextLibs = libs.filter(function(lib) { return lib.id !== id; });
+  saveStickerLibraries(nextLibs);
+  if (_stickerSendLibraryFilter === id) _stickerSendLibraryFilter = 'all';
+  renderStickerManageView();
+  renderStickerSendView();
+  renderPersonaStickerLibraryOptions(getSelectedPersonaStickerLibraryIds());
+}
+function getStickers(libraryIds) {
+  const libs = getStickerLibraries();
+  const ids = Array.isArray(libraryIds) && libraryIds.length ? libraryIds : null;
+  const picked = ids ? libs.filter(function(lib) { return ids.includes(lib.id); }) : libs;
+  return picked.flatMap(function(lib) {
+    return (lib.stickers || []).map(function(sticker, idx) {
+      return Object.assign({}, _normalizeStickerItem(sticker), {
+        _libraryId: lib.id,
+        _libraryName: lib.name,
+        _libraryIndex: idx
+      });
+    });
+  });
+}
+function saveStickers(arr) {
+  const libs = getStickerLibraries();
+  if (!libs.length) return;
+  libs[0].stickers = (Array.isArray(arr) ? arr : []).map(_normalizeStickerItem);
+  saveStickerLibraries(libs);
+}
+function getSelectedPersonaStickerLibraryIds() {
+  return Array.from(document.querySelectorAll('#pStickerLibraryList input[type="checkbox"]:checked')).map(function(el) {
+    return el.value;
+  });
+}
+function togglePersonaStickerLibraryPicker() {
+  const wrap = document.getElementById('pStickerLibraryPickerWrap');
+  const enabled = !!(document.getElementById('pAllowSticker') || {}).checked;
+  if (wrap) wrap.style.display = enabled ? 'block' : 'none';
+}
+function renderPersonaStickerLibraryOptions(selectedIds) {
+  const list = document.getElementById('pStickerLibraryList');
+  if (!list) return;
+  const picked = Array.isArray(selectedIds) ? selectedIds : [];
+  const libs = getStickerLibraries();
+  if (!libs.length) {
+    list.innerHTML = '<div style="font-size:10px;color:#999;">暂无表情包库</div>';
+    togglePersonaStickerLibraryPicker();
+    return;
+  }
+  list.innerHTML = libs.map(function(lib) {
+    const checked = picked.includes(lib.id) ? 'checked' : '';
+    return '<label style="display:flex;align-items:center;gap:6px;padding:7px 10px;border:1px solid #ddd;border-radius:999px;background:#fff;cursor:pointer;font-size:11px;">' +
+      '<input type="checkbox" value="' + lib.id + '" ' + checked + ' style="accent-color:#1a1a1a;">' +
+      '<span>' + lib.name + '（' + (lib.stickers || []).length + '）</span>' +
+    '</label>';
+  }).join('');
+  togglePersonaStickerLibraryPicker();
+}
 // ===================== 语音合成 TTS 配置 =====================
 let ttsConfig = JSON.parse(localStorage.getItem('mono_tts_config') || '{}');
 // ttsConfig: { enabled: bool, version: 'official'|'global'|'cn', model: 'speech-01'|'speech-02', key, groupId }
@@ -26555,16 +26725,18 @@ function urlToBase64(url) {
 }
 function confirmBatchStickers() {
   if (_batchStickerSlots.length === 0) { alert('请先添加表情包'); return; }
-  const stickers = getStickers();
+  const libs = getStickerLibraries();
+  const targetLib = libs.find(function(lib) { return lib.id === getCurrentStickerLibraryId(); }) || libs[0];
+  if (!targetLib) { alert('没有可用的表情包库'); return; }
   _batchStickerSlots.forEach(slot => {
-    stickers.push({
+    targetLib.stickers.push({
       src: slot.src,
       caption: slot.desc || '',
       isUrl: slot.isUrl || false,
       _visionDesc: slot.desc || ''  // Store vision-generated description permanently
     });
   });
-  saveStickers(stickers);
+  saveStickerLibraries(libs);
   closeBatchStickerModal();
   renderStickerManageView();
   alert('成功添加 ' + _batchStickerSlots.length + ' 个表情包！');
@@ -26595,15 +26767,16 @@ confirmAddSticker = async function() {
     alert('请先在设置中配置图片识别API');
     return;
   }
-  const stickers = getStickers();
-  if (_stickerEditIdx !== null) {
-    stickers[_stickerEditIdx].src = _stickerPendingImage;
-    stickers[_stickerEditIdx].caption = caption;
-    stickers[_stickerEditIdx]._visionDesc = caption;
+  const libs = getStickerLibraries();
+  const targetLibId = (_stickerEditIdx && _stickerEditIdx.libraryId) || getCurrentStickerLibraryId();
+  const targetLib = libs.find(function(lib) { return lib.id === targetLibId; }) || libs[0];
+  if (!targetLib) { alert('没有可用的表情包库'); return; }
+  if (_stickerEditIdx !== null && typeof _stickerEditIdx.idx === 'number') {
+    targetLib.stickers[_stickerEditIdx.idx] = Object.assign({}, targetLib.stickers[_stickerEditIdx.idx] || {}, { src: _stickerPendingImage, caption: caption, _visionDesc: caption });
   } else {
-    stickers.push({ src: _stickerPendingImage, caption: caption, _visionDesc: caption });
+    targetLib.stickers.push({ src: _stickerPendingImage, caption: caption, _visionDesc: caption });
   }
-  saveStickers(stickers);
+  saveStickerLibraries(libs);
   closeStickerAddModal();
   renderStickerManageView();
 };
@@ -26611,7 +26784,7 @@ confirmAddSticker = async function() {
 var _origSendStickerFromLibrary = sendStickerFromLibrary;
 sendStickerFromLibrary = function(idx) {
   if (!currentId) { closeStickerModal(); return; }
-  const stickers = getStickers();
+  const stickers = _stickerSendLibraryFilter === 'all' ? getStickers() : getStickers([_stickerSendLibraryFilter]);
   const s = stickers[idx];
   if (!s) return;
   const p = personas.find(x => x.id == currentId);
@@ -26655,13 +26828,51 @@ importStickerFromUrl = async function() {
   } else {
     caption = prompt('请输入表情包描述（可留空）：', '') || '';
   }
-  const stickers = getStickers();
-  stickers.push({ src: url, caption: caption, isUrl: true, _visionDesc: caption });
-  saveStickers(stickers);
+  const libs = getStickerLibraries();
+  const targetLib = libs.find(function(lib) { return lib.id === getCurrentStickerLibraryId(); }) || libs[0];
+  if (!targetLib) { alert('没有可用的表情包库'); return; }
+  targetLib.stickers.push({ src: url, caption: caption, isUrl: true, _visionDesc: caption });
+  saveStickerLibraries(libs);
   urlInput.value = '';
   renderStickerManageView();
   alert('表情包已成功导入！' + (caption ? '\n描述：' + caption : ''));
 };
+async function importStickerUrlsBulk() {
+  const textarea = document.getElementById('stickerBulkUrlInput');
+  const statusEl = document.getElementById('stickerBulkUrlStatus');
+  const raw = (textarea && textarea.value || '').trim();
+  if (!raw) { alert('请先粘贴图片 URL'); return; }
+  const urls = raw.split(/\r?\n/).map(function(line) { return line.trim(); }).filter(function(line) { return /^https?:\/\//i.test(line); });
+  if (!urls.length) { alert('没有识别到有效的图片 URL'); return; }
+  const autoDesc = !!(document.getElementById('stickerBulkUrlAutoDesc') || {}).checked;
+  if (autoDesc && !isVisionApiConfigured()) { alert('请先在设置里配置图片识别 API'); return; }
+  const libs = getStickerLibraries();
+  const targetLib = libs.find(function(lib) { return lib.id === getCurrentStickerLibraryId(); }) || libs[0];
+  if (!targetLib) { alert('没有可用的表情包库'); return; }
+  if (statusEl) statusEl.style.display = 'block';
+  let successCount = 0;
+  for (let i = 0; i < urls.length; i++) {
+    const url = urls[i];
+    let caption = '';
+    if (statusEl) statusEl.innerHTML = '<i class="fas fa-spinner fa-spin" style="margin-right:4px;"></i>正在导入第 ' + (i + 1) + ' / ' + urls.length + ' 个 URL...';
+    if (autoDesc) {
+      try {
+        const base64 = await urlToBase64(url).catch(function() { return url; });
+        caption = await describeImageWithVisionApi(base64);
+      } catch(e) {
+        caption = '';
+      }
+    }
+    targetLib.stickers.push({ src: url, caption: caption, isUrl: true, _visionDesc: caption });
+    successCount++;
+  }
+  saveStickerLibraries(libs);
+  if (textarea) textarea.value = '';
+  if (statusEl) statusEl.style.display = 'none';
+  renderStickerManageView();
+  renderStickerSendView();
+  alert('成功导入 ' + successCount + ' 个 URL 表情包到“' + targetLib.name + '”');
+}
 function togglePlusPanel() {
   const panel = document.getElementById('plusPanel');
   const btn = document.getElementById('chatPlusBtn');
@@ -26681,6 +26892,7 @@ function closePlusPanel() {
 // ---- STICKER ----
 function openStickerModal() {
   closePlusPanel();
+  getStickerLibraries();
   renderStickerSendView();
   document.getElementById('stickerModal').classList.add('show');
   switchStickerTab('send');
@@ -26697,7 +26909,8 @@ function switchStickerTab(tab) {
   if (tab === 'manage') renderStickerManageView();
 }
 function renderStickerSendView() {
-  const stickers = getStickers();
+  const stickers = _stickerSendLibraryFilter === 'all' ? getStickers() : getStickers([_stickerSendLibraryFilter]);
+  const libs = getStickerLibraries();
   const grid = document.getElementById('stickerSendView');
   // Ensure grid display is set correctly to prevent overlap
   grid.style.display = 'grid';
@@ -26708,25 +26921,47 @@ function renderStickerSendView() {
   grid.style.alignContent = 'start';
   grid.style.minHeight = '0';
   grid.style.width = '100%';
+  const toolbar = '<div style="grid-column:1/-1;display:flex;flex-wrap:wrap;gap:6px;">' +
+    '<button type="button" onclick="setStickerSendLibraryFilter(\'all\')" style="border:none;border-radius:999px;padding:6px 10px;font-size:10px;cursor:pointer;background:' + (_stickerSendLibraryFilter === 'all' ? '#1a1a1a' : '#f1f1f1') + ';color:' + (_stickerSendLibraryFilter === 'all' ? '#fff' : '#333') + ';">全部</button>' +
+    libs.map(function(lib) {
+      const active = _stickerSendLibraryFilter === lib.id;
+      return '<button type="button" onclick="setStickerSendLibraryFilter(\'' + lib.id + '\')" style="border:none;border-radius:999px;padding:6px 10px;font-size:10px;cursor:pointer;background:' + (active ? '#1a1a1a' : '#f1f1f1') + ';color:' + (active ? '#fff' : '#333') + ';">' + lib.name + '</button>';
+    }).join('') +
+  '</div>';
   if (stickers.length === 0) {
-    grid.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:30px;color:#bbb;">
+    grid.innerHTML = toolbar + `<div style="grid-column:1/-1;text-align:center;padding:30px;color:#bbb;">
       <i class="fas fa-smile" style="font-size:28px;display:block;margin-bottom:8px;"></i>
       <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;">表情包库为空<br>前往管理库添加</div>
     </div>`;
     return;
   }
-  grid.innerHTML = stickers.map((s, i) => `
+  grid.innerHTML = toolbar + stickers.map((s, i) => `
     <div class="sticker-item" onclick="sendStickerFromLibrary(${i})" title="${s.caption || ''}" style="display:block;min-width:0;min-height:0;">
       <img src="${s.src}" alt="sticker" style="width:100%;height:100%;object-fit:cover;display:block;">
       <div class="sticker-item-overlay">
-        <div style="font-size:8px;color:#fff;text-align:center;padding:0 4px;">${s.caption || '無描述'}</div>
+        <div style="font-size:8px;color:#fff;text-align:center;padding:0 4px;">${s.caption || '無描述'}${s._libraryName ? '<br><span style="opacity:0.8;">[' + s._libraryName + ']</span>' : ''}</div>
       </div>
     </div>
   `).join('');
 }
 function renderStickerManageView() {
-  const stickers = getStickers();
+  const libs = getStickerLibraries();
+  const currentLibId = getCurrentStickerLibraryId();
+  const currentLib = getStickerLibraryById(currentLibId) || libs[0] || { id: '', name: '默认表情包库', stickers: [] };
+  const stickers = (currentLib.stickers || []).map(function(s, idx) {
+    return Object.assign({}, _normalizeStickerItem(s), { _libraryId: currentLib.id, _libraryIndex: idx });
+  });
   const grid = document.getElementById('stickerManageGrid');
+  const toolbar = document.getElementById('stickerLibraryToolbar');
+  if (toolbar) {
+    toolbar.innerHTML = libs.map(function(lib) {
+      const active = lib.id === currentLib.id;
+      return '<button type="button" onclick="setCurrentStickerLibrary(\'' + lib.id + '\')" style="border:none;border-radius:999px;padding:7px 10px;font-size:10px;cursor:pointer;background:' + (active ? '#1a1a1a' : '#f1f1f1') + ';color:' + (active ? '#fff' : '#333') + ';">' + lib.name + '（' + (lib.stickers || []).length + '）</button>';
+    }).join('') +
+    '<button type="button" onclick="createStickerLibrary()" style="border:none;border-radius:999px;padding:7px 10px;font-size:10px;cursor:pointer;background:#e8f0fe;color:#1a73e8;">+ 新建表情包库</button>' +
+    (currentLib.id ? '<button type="button" onclick="renameStickerLibrary(\'' + currentLib.id + '\')" style="border:none;border-radius:999px;padding:7px 10px;font-size:10px;cursor:pointer;background:#fff3cd;color:#856404;">重命名</button>' : '') +
+    (currentLib.id ? '<button type="button" onclick="deleteStickerLibrary(\'' + currentLib.id + '\')" style="border:none;border-radius:999px;padding:7px 10px;font-size:10px;cursor:pointer;background:#fdecea;color:#b42318;">删除当前库</button>' : '');
+  }
   // Ensure grid display is set correctly
   grid.style.display = 'grid';
   grid.style.gridTemplateColumns = 'repeat(4, 1fr)';
@@ -26740,12 +26975,12 @@ function renderStickerManageView() {
     <div class="sticker-item" style="position:relative;display:block;min-width:0;min-height:0;">
       <img src="${s.src}" alt="sticker" style="width:100%;height:100%;object-fit:cover;display:block;">
       <div class="sticker-item-overlay">
-        <button class="sticker-overlay-btn" onclick="editStickerCaption(${i})">✏️ 编輯</button>
-        <button class="sticker-overlay-btn" style="background:rgba(255,80,80,0.9);color:#fff;" onclick="deleteSticker(${i})">🗑 刪除</button>
+        <button class="sticker-overlay-btn" onclick="editStickerCaption('${currentLib.id}', ${i})">✏️ 编輯</button>
+        <button class="sticker-overlay-btn" style="background:rgba(255,80,80,0.9);color:#fff;" onclick="deleteSticker('${currentLib.id}', ${i})">🗑 刪除</button>
       </div>
     </div>
   `).join('');
-  html += `<div class="sticker-add-btn" onclick="openStickerAddModal()">
+  html += `<div class="sticker-add-btn" onclick="openStickerAddModal('${currentLib.id}')">
     <i class="fas fa-plus"></i>
     <span>添加</span>
   </div>`;
@@ -26757,7 +26992,7 @@ function renderStickerManageView() {
 }
 function sendStickerFromLibrary(idx) {
   if (!currentId) { closeStickerModal(); return; }
-  const stickers = getStickers();
+  const stickers = _stickerSendLibraryFilter === 'all' ? getStickers() : getStickers([_stickerSendLibraryFilter]);
   const s = stickers[idx];
   if (!s) return;
   const p = personas.find(x => x.id == currentId);
@@ -26767,14 +27002,16 @@ function sendStickerFromLibrary(idx) {
   // 根据角色回复模式决定是否自动回复
   if (typeof _handleAutoReplyAfterSend === "function") _handleAutoReplyAfterSend(currentId);
 }
-function openStickerAddModal(editIdx) {
+function openStickerAddModal(libraryId, editIdx) {
   _stickerPendingImage = null;
-  _stickerEditIdx = editIdx !== undefined ? editIdx : null;
+  _stickerEditIdx = editIdx !== undefined ? { libraryId: libraryId || getCurrentStickerLibraryId(), idx: editIdx } : null;
+  if (libraryId) _currentStickerLibraryId = libraryId;
   document.getElementById('stickerPreviewImg').style.display = 'none';
   document.getElementById('stickerPreviewPlaceholder').style.display = 'flex';
   document.getElementById('stickerCaptionInput').value = '';
   if (editIdx !== undefined) {
-    const s = getStickers()[editIdx];
+    const lib = getStickerLibraryById(libraryId || getCurrentStickerLibraryId());
+    const s = lib && lib.stickers ? lib.stickers[editIdx] : null;
     if (s) {
       document.getElementById('stickerPreviewImg').src = s.src;
       document.getElementById('stickerPreviewImg').style.display = 'block';
@@ -26806,29 +27043,37 @@ function handleStickerImageSelect(input) {
 function confirmAddSticker() {
   if (!_stickerPendingImage) { alert('请先选择图片'); return; }
   const caption = document.getElementById('stickerCaptionInput').value.trim();
-  const stickers = getStickers();
-  if (_stickerEditIdx !== null) {
-    stickers[_stickerEditIdx].src = _stickerPendingImage;
-    stickers[_stickerEditIdx].caption = caption;
+  const libs = getStickerLibraries();
+  const targetLibId = (_stickerEditIdx && _stickerEditIdx.libraryId) || getCurrentStickerLibraryId();
+  const targetLib = libs.find(function(lib) { return lib.id === targetLibId; }) || libs[0];
+  if (!targetLib) { alert('没有可用的表情包库'); return; }
+  if (_stickerEditIdx !== null && typeof _stickerEditIdx.idx === 'number') {
+    targetLib.stickers[_stickerEditIdx.idx] = Object.assign({}, targetLib.stickers[_stickerEditIdx.idx] || {}, { src: _stickerPendingImage, caption: caption, _visionDesc: caption });
   } else {
-    stickers.push({ src: _stickerPendingImage, caption: caption });
+    targetLib.stickers.push({ src: _stickerPendingImage, caption: caption, _visionDesc: caption });
   }
-  saveStickers(stickers);
+  saveStickerLibraries(libs);
   closeStickerAddModal();
   renderStickerManageView();
 }
-function editStickerCaption(idx) {
-  openStickerAddModal(idx);
+function editStickerCaption(libraryId, idx) {
+  openStickerAddModal(libraryId, idx);
 }
-function deleteSticker(idx) {
+function deleteSticker(libraryId, idx) {
   if (!confirm('确定刪除这个表情包？')) return;
-  const stickers = getStickers();
-  stickers.splice(idx, 1);
-  saveStickers(stickers);
+  const libs = getStickerLibraries();
+  const targetLib = libs.find(function(lib) { return lib.id === libraryId; });
+  if (!targetLib) return;
+  targetLib.stickers.splice(idx, 1);
+  saveStickerLibraries(libs);
   renderStickerManageView();
 }
 function toggleStickerCaption(el) {
   el.classList.toggle('caption-show');
+}
+function setStickerSendLibraryFilter(id) {
+  _stickerSendLibraryFilter = id || 'all';
+  renderStickerSendView();
 }
 // ---- TRANSFER ----
 function openTransferModal() {
@@ -28575,6 +28820,7 @@ async function _doExportAllData(statusEl) {
       },
       stickers: {
         library: JSON.parse(localStorage.getItem('mono_stickers') || '[]'),
+        libraries: getStickerLibraries(),
         visionApi: JSON.parse(localStorage.getItem('mono_vision_api') || '{}')
       },
       // 梦境存档
@@ -28871,6 +29117,7 @@ function normalizeImportData(raw) {
     if (np.temperature == null) np.temperature = 1.0;
     if (np.timeAwareness == null) np.timeAwareness = false;
     if (np.allowSticker == null) np.allowSticker = false;
+    if (!Array.isArray(np.stickerLibraryIds)) np.stickerLibraryIds = [];
     if (np.allowVoice == null) np.allowVoice = false;
     if (np.memoryCount == null) np.memoryCount = 100;
     if (np.autoMsg == null) np.autoMsg = false;
@@ -28965,7 +29212,11 @@ function normalizeImportData(raw) {
   };
   // --- stickers (new — default empty for old backups) ---
   data.stickers = {
-    library: (raw.stickers && Array.isArray(raw.stickers.library)) ? raw.stickers.library : []
+    library: (raw.stickers && Array.isArray(raw.stickers.library)) ? raw.stickers.library : [],
+    libraries: (raw.stickers && Array.isArray(raw.stickers.libraries))
+      ? raw.stickers.libraries.map(_normalizeStickerLibrary)
+      : [{ id: 'sticker_lib_default', name: '默认表情包库', stickers: ((raw.stickers && Array.isArray(raw.stickers.library)) ? raw.stickers.library : []).map(_normalizeStickerItem) }],
+    visionApi: (raw.stickers && raw.stickers.visionApi) ? raw.stickers.visionApi : {}
   };
   // --- settings ---
   data.settings = {
@@ -29601,7 +29852,11 @@ async function confirmImport() {
   });
   // 11. 表情包
   await safe('表情包', () => {
-    if (data.stickers && data.stickers.library) localStorage.setItem('mono_stickers', JSON.stringify(data.stickers.library));
+    if (data.stickers && Array.isArray(data.stickers.libraries)) {
+      saveStickerLibraries(data.stickers.libraries);
+    } else if (data.stickers && data.stickers.library) {
+      saveStickerLibraries([{ id: 'sticker_lib_default', name: '默认表情包库', stickers: data.stickers.library }]);
+    }
     if (data.stickers && data.stickers.visionApi) { localStorage.setItem('mono_vision_api', JSON.stringify(data.stickers.visionApi)); visionApiConfig = data.stickers.visionApi; }
   });
   // 11.5 API配置
